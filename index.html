@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>11501 普二文組・3D 複習造島計畫 (Island Review Odyssey)</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body tabindex="-1">
+  <!-- 3D 群島畫布與懸浮島嶼標籤 -->
+  <div id="canvas-container" aria-label="3D 複習群島場景"></div>
+  <div id="island-labels"></div>
+
+  <!-- 頂部狀態與導覽列 -->
+  <header class="top-header">
+    <div class="brand-area">
+      <div class="brand-icon">🏝️</div>
+      <div>
+        <h1 class="brand-title">11501 普二文組・3D 複習造島計畫</h1>
+        <p class="brand-sub">南山中學第二次段考（12/01–12/02）六科整合節點確認與闖關系統</p>
+      </div>
+    </div>
+
+    <div class="status-pills">
+      <div class="stat-pill">
+        <span>⏳</span>
+        <strong id="exam-countdown-text">倒數 14 天 (12/01–12/02)</strong>
+      </div>
+      <div class="stat-pill">
+        <span>🔥 自強進度</span>
+        <div class="mini-progress-track">
+          <div class="mini-progress-fill" id="global-progress-fill"></div>
+        </div>
+        <strong id="global-progress-text">0%</strong>
+      </div>
+      <div class="stat-pill">
+        <span>🏫 自強認證</span>
+        <strong id="global-flags-text">0/25 🏅</strong>
+      </div>
+      <div class="stat-pill" title="完成考點勾選 (+2🐟) 或通過測驗 (+5🐟) 即可賺取小魚乾餵貓！">
+        <span>🐟 小魚乾</span>
+        <strong id="fish-count-text">3</strong>
+      </div>
+      <div class="stat-pill" title="校園生活「自強不息」走路遇點累積步數">
+        <span>🚶 自強步數</span>
+        <strong id="walk-steps-text">0 步</strong>
+      </div>
+    </div>
+
+    <nav class="nav-tabs">
+      <button type="button" class="nav-btn pomodoro-btn" id="pomodoro-btn" title="25 分鐘專注番茄鐘">🍅 25:00 專注</button>
+      <button type="button" class="nav-btn" id="nav-checkin-btn" title="自強不息每日簽到與連勝徽章">📅 簽到 (0天)</button>
+      <button type="button" class="nav-btn" id="nav-life-btn" title="群島建設圖鑑、隨身行囊與跨島搜尋">🏕️ 造島＆行囊</button>
+      <button type="button" class="nav-btn" id="atmosphere-toggle-btn" title="切換 3D 海域天色">☀️ 晴空海域</button>
+      <button type="button" class="nav-btn is-active" id="nav-explore-btn">🏝️ 探索</button>
+      <button type="button" class="nav-btn" id="nav-schedule-btn">📅 彈性排程</button>
+      <button type="button" class="nav-btn" id="nav-report-btn">📊 成果與 GAS 同步</button>
+      <button type="button" class="nav-btn" id="nav-admin-btn" title="檢視南山豹 3D 八向圖鑑與管理下次段考範圍">⚙️ 八向＆改版</button>
+    </nav>
+  </header>
+
+  <!-- 底部中央快速島嶼傳送列 -->
+  <div class="quick-dock">
+    <div class="island-dock-bar" id="island-dock-bar"></div>
+    <div class="camera-hint">💡 WASD / 左下圓盤操控南山豹自由奔跑跨橋與海上衝浪；Space 跳躍（連按二段跳）、Q 歡呼、R 熱舞、Shift 衝刺、E 遇點！</div>
+  </div>
+
+  <!-- 左下角南山豹虛擬圓盤搖桿 -->
+  <div class="panther-joy-wrap" aria-label="南山豹方向圓盤">
+    <div id="joy" class="panther-joy" role="application" aria-label="移動方向盤">
+      <span class="joy-arrow joy-up" aria-hidden="true">▲</span>
+      <span class="joy-arrow joy-right" aria-hidden="true">▶</span>
+      <span class="joy-arrow joy-down" aria-hidden="true">▼</span>
+      <span class="joy-arrow joy-left" aria-hidden="true">◀</span>
+      <div id="knob" class="panther-knob">🐾</div>
+    </div>
+    <div class="panther-joy-caption">🕹️ 拖曳／點按移動</div>
+  </div>
+
+  <!-- 登島收合面板後的浮動提示條 -->
+  <div class="island-float-pill" id="island-float-pill" aria-label="目前所在學科島快捷列">
+    <span id="island-float-title">🏝️ 國文島</span>
+    <button type="button" class="primary-btn" id="reopen-panel-btn">📋 展開考點清單</button>
+    <button type="button" class="secondary-btn" id="float-walk-step-btn">🚶 走路遇點</button>
+  </div>
+
+  <!-- 右下角南山豹動作與互動控制群 -->
+  <div class="panther-actions-hud" id="panther-actions-hud" aria-label="南山豹動作按鍵">
+    <div class="panther-sub-actions">
+      <button type="button" class="panther-mini-btn" id="panther-cheer-btn" title="歡呼加油 (Q)">🙌 歡呼</button>
+      <button type="button" class="panther-mini-btn" id="panther-dance-btn" title="熱舞應援 +1小魚乾 (R)">💃 熱舞</button>
+      <button type="button" class="panther-mini-btn" id="panther-sprint-btn" title="切換加速衝刺 (Shift)">⚡ 衝刺</button>
+      <button type="button" class="panther-mini-btn" id="panther-sex-btn" title="切換南山豹男/女款制服">👔 男裝</button>
+      <button type="button" class="panther-mini-btn is-active" id="panther-chase-btn" title="跑酷追逐視角：跑動時鏡頭自動繞到背後 (C)">🏃 追逐</button>
+      <button type="button" class="panther-mini-btn" id="panther-focus-btn" title="切換第三人稱跟隨 / 全島鳥瞰視角">🗺️ 鳥瞰</button>
+      <button type="button" class="panther-mini-btn" id="panther-home-btn" title="返回中央自強廣場">⚓ 廣場</button>
+    </div>
+    <div class="panther-main-actions">
+      <button type="button" class="panther-interact-btn" id="panther-interact-btn" title="與附近節點/島嶼互動 (E / Enter)">💬 歡呼應援</button>
+      <button type="button" class="panther-jump-btn" id="panther-jump-btn" title="跳躍 / 空中連按二段跳 (Space)">🦘 跳</button>
+    </div>
+  </div>
+
+  <!-- 靠近島嶼提示條 -->
+  <div class="near-island-banner" id="near-island-banner">
+    <span id="near-island-text">⚓ 已靠近島嶼！</span>
+    <button type="button" class="primary-btn" id="near-island-dock-btn" style="padding:5px 12px;font-size:12px;">登島複習</button>
+  </div>
+
+  <!-- 右側「登島指揮所」面板 -->
+  <aside class="island-panel" id="island-panel" aria-label="島嶼複習指揮面板">
+    <div class="panel-header" id="panel-header"></div>
+    <div class="panel-body" id="panel-body"></div>
+  </aside>
+
+  <!-- 模態視窗 1：彈性時段＆番茄鐘 14 天排程表 -->
+  <div class="modal-overlay" id="schedule-modal" role="dialog" aria-modal="true" aria-labelledby="schedule-modal-title">
+    <div class="modal-card">
+      <div class="modal-header">
+        <div>
+          <h2 class="modal-title" id="schedule-modal-title">📅 考前 14 天彈性時段排程表（含週一二四晚自習＆六日雙時段）</h2>
+          <p style="font-size:12px;color:var(--text-muted);margin-top:3px;">
+            預設週一二四「18:40–20:25 晚自習 (105m)」、六日「09:00–12:00 & 14:00–17:00」；若有補習或臨時行程，直接點選每日時段膠囊或自訂分鐘即可彈性調整！
+          </p>
+        </div>
+        <button type="button" class="close-btn" id="close-schedule-btn">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="budget-settings-bar">
+          <span>🍅 <strong>排程節奏說明：</strong> 每顆番茄鐘 = 25 分鐘（點擊任務旁的 🍅 即可直接啟動該單元專屬計時！）</span>
+          <button type="button" class="small-action-btn" id="reset-slots-btn" style="margin-left:auto;">↺ 重設所有每日時段為學校預設</button>
+        </div>
+        <div class="schedule-actions">
+          <div style="display:flex;flex-wrap:wrap;gap:8px;">
+            <button type="button" class="primary-btn" id="sched-balance-btn">🌙 依各日啟用時段智慧排程</button>
+            <button type="button" class="secondary-btn" id="sched-weak-btn">🔥 優先搶救「待加強／未完成」</button>
+            <button type="button" class="secondary-btn" id="sched-default-btn">↺ 恢復預設建議排程</button>
+          </div>
+        </div>
+        <div class="schedule-grid" id="schedule-grid"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 模態視窗 2：造島成果報告、GAS 雲端同步與列印匯出 -->
+  <div class="modal-overlay" id="report-modal" role="dialog" aria-modal="true" aria-labelledby="report-modal-title">
+    <div class="modal-card">
+      <div class="modal-header">
+        <div>
+          <h2 class="modal-title" id="report-modal-title">📊 造島成果報告・GAS 雲端同步與列印匯出</h2>
+          <p style="font-size:12px;color:var(--text-muted);margin-top:3px;">
+            填寫班級座號姓名後可一鍵同步至 Google 試算表 (GAS)，或列印紙本檢核表與 JSON 備份
+          </p>
+        </div>
+        <button type="button" class="close-btn" id="close-report-btn">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="student-profile-bar">
+          <div class="profile-field">
+            <label for="stu-class">班級／組別</label>
+            <input id="stu-class" type="text" placeholder="例：普二速（文組）" />
+          </div>
+          <div class="profile-field">
+            <label for="stu-seat">座號</label>
+            <input id="stu-seat" type="text" placeholder="例：12" />
+          </div>
+          <div class="profile-field">
+            <label for="stu-name">姓名</label>
+            <input id="stu-name" type="text" placeholder="請輸入姓名" />
+          </div>
+        </div>
+
+        <div class="gas-sync-box">
+          <div style="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px;">
+            <strong style="font-size:13px;">☁️ Google Apps Script (GAS) 雲端同步與自動紀錄</strong>
+            <span id="gas-sync-status" style="font-size:11.5px;color:var(--text-muted);">尚未同步</span>
+          </div>
+          <div style="display:flex;flex-wrap:wrap;gap:8px;">
+            <input id="gas-url-input" class="search-input" type="url" placeholder="貼上 GAS Web App 網址 (/exec)" style="padding:6px 10px;font-size:12px;" />
+            <button type="button" class="primary-btn" id="gas-sync-btn" style="padding:6px 12px;font-size:12px;">☁️ 立即同步至試算表</button>
+            <button type="button" class="secondary-btn" id="gas-load-btn" style="padding:6px 12px;font-size:12px;">📥 從雲端載入紀錄</button>
+            <button type="button" class="secondary-btn" id="gas-teacher-btn" style="padding:6px 12px;font-size:12px;">👨‍🏫 教師分析後台</button>
+          </div>
+        </div>
+
+        <div class="report-summary-cards" id="report-kpis"></div>
+
+        <div class="report-actions" style="margin-bottom:16px;">
+          <button type="button" class="primary-btn" id="print-report-btn">🖨️ 列印 / 儲存為 PDF 報告</button>
+          <button type="button" class="secondary-btn" id="export-json-btn">💾 匯出進度備份 (.json)</button>
+          <label class="secondary-btn" style="display:inline-flex;align-items:center;cursor:pointer;">
+            📂 匯入進度備份
+            <input type="file" id="import-json-input" accept="application/json" style="display:none;" />
+          </label>
+          <button type="button" class="secondary-btn" id="reset-all-btn" style="margin-left:auto;border-color:rgba(239,68,68,0.45);color:#fca5a5;">
+            🗑️ 重設所有進度
+          </button>
+        </div>
+
+        <table class="report-table">
+          <thead>
+            <tr>
+              <th style="width:14%;">學科</th>
+              <th style="width:28%;">單元據點</th>
+              <th style="width:12%;">節點檢核</th>
+              <th style="width:12%;">闖關測驗</th>
+              <th style="width:12%;">熟練度</th>
+              <th style="width:22%;">個人筆記</th>
+            </tr>
+          </thead>
+          <tbody id="report-table-body"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- 模態視窗 3：據點闖關小測驗 -->
+  <div class="modal-overlay" id="quiz-modal" role="dialog" aria-modal="true" aria-labelledby="quiz-modal-title">
+    <div class="modal-card quiz-modal-card">
+      <div class="modal-header">
+        <h2 class="modal-title" id="quiz-modal-title">⚔️ 據點闖關測驗</h2>
+        <button type="button" class="close-btn" id="close-quiz-btn">✕</button>
+      </div>
+      <div class="modal-body" id="quiz-modal-body"></div>
+    </div>
+  </div>
+
+  <!-- 模態視窗 4：自訂編輯據點名稱 -->
+  <div class="modal-overlay" id="edit-node-modal" role="dialog" aria-modal="true" aria-labelledby="edit-node-modal-title">
+    <div class="modal-card quiz-modal-card">
+      <div class="modal-header">
+        <h2 class="modal-title" id="edit-node-modal-title">✏️ 編輯據點標題與單元說明</h2>
+        <button type="button" class="close-btn" id="close-edit-btn">✕</button>
+      </div>
+      <div class="modal-body" style="display:flex;flex-direction:column;gap:12px;">
+        <div class="profile-field">
+          <label for="edit-node-title">據點單元名稱</label>
+          <input id="edit-node-title" type="text" />
+        </div>
+        <div class="profile-field">
+          <label for="edit-node-sections">小節與補充說明</label>
+          <input id="edit-node-sections" type="text" />
+        </div>
+        <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:6px;">
+          <button type="button" class="primary-btn" id="save-edit-node-btn">儲存變更</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 模態視窗 5：校園自強不息・走路遇點知識記憶與深化卡 -->
+  <div class="modal-overlay" id="encounter-modal" role="dialog" aria-modal="true" aria-labelledby="encounter-modal-title">
+    <div class="modal-card quiz-modal-card">
+      <div class="modal-header">
+        <h2 class="modal-title" id="encounter-modal-title">🐾 自強不息・走路遇點知識深化</h2>
+        <button type="button" class="close-btn" id="close-encounter-btn">✕</button>
+      </div>
+      <div class="modal-body" id="encounter-modal-body"></div>
+    </div>
+  </div>
+
+  <!-- 模態視窗 6：自強不息・每日登入簽到與連勝徽章 -->
+  <div class="modal-overlay" id="checkin-modal" role="dialog" aria-modal="true" aria-labelledby="checkin-modal-title">
+    <div class="modal-card">
+      <div class="modal-header">
+        <div>
+          <h2 class="modal-title" id="checkin-modal-title">🔥 自強不息・每日登入簽到與連勝徽章</h2>
+          <p style="font-size:12px;color:var(--text-muted);margin-top:3px;">
+            每日登島簽到蓋下貓掌印章即可獲得 +5 🐟 小魚乾＆+100 自強步數，累積連勝解鎖榮譽徽章！
+          </p>
+        </div>
+        <button type="button" class="close-btn" id="close-checkin-btn">✕</button>
+      </div>
+      <div class="modal-body" id="checkin-modal-body"></div>
+    </div>
+  </div>
+
+  <!-- 模態視窗 7：群島建設圖鑑、隨身行囊與跨島搜尋 -->
+  <div class="modal-overlay" id="life-modal" role="dialog" aria-modal="true" aria-labelledby="life-modal-title">
+    <div class="modal-card">
+      <div class="modal-header">
+        <div>
+          <h2 class="modal-title" id="life-modal-title">🏕️ 群島建設圖鑑・考點隨身行囊與跨島搜尋</h2>
+          <p style="font-size:12px;color:var(--text-muted);margin-top:3px;">
+            用複習賺取的小魚乾解鎖真實 3D 島嶼建設，或將不熟考點收入「隨身行囊」隨時速覽！
+          </p>
+        </div>
+        <button type="button" class="close-btn" id="close-life-btn">✕</button>
+      </div>
+      <div class="modal-body" id="life-modal-body"></div>
+    </div>
+  </div>
+
+  <!-- 模態視窗 8：南山豹 3D 八向圖鑑 & 下次段考一鍵改版器 -->
+  <div class="modal-overlay" id="admin-modal" role="dialog" aria-modal="true" aria-labelledby="admin-modal-title">
+    <div class="modal-card">
+      <div class="modal-header">
+        <div>
+          <h2 class="modal-title" id="admin-modal-title">⚙️ 南山豹 3D 八向圖鑑 ＆ 下次段考改版中心</h2>
+          <p style="font-size:12px;color:var(--text-muted);margin-top:3px;">
+            檢視／下載男女款南山豹 8 向 3D 公仔立繪，並可免寫程式直接調整下次段考日期與六科範圍並發布至雲端！
+          </p>
+        </div>
+        <button type="button" class="close-btn" id="close-admin-btn">✕</button>
+      </div>
+      <div class="modal-body" id="admin-modal-body"></div>
+    </div>
+  </div>
+
+  <!-- 專屬列印根節點（平常隱藏，列印時顯示） -->
+  <div id="print-report-root"></div>
+
+  <!-- 提示氣泡 -->
+  <div class="toast" id="toast"></div>
+
+  <!-- Three.js & OrbitControls CDN (含 cdnjs 雙重備援；若完全離線則自動切換至 2D 互動海圖模式) -->
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js" async></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/SVGLoader.js" async></script>
+  <script>
+    (function loadThreeFallback() {
+      function injectScript(src, onload) {
+        var s = document.createElement("script");
+        s.src = src;
+        if (onload) s.onload = onload;
+        document.head.appendChild(s);
+      }
+      function ensureOrbitAndUpgrade() {
+        if (window.THREE && !window.THREE.OrbitControls) {
+          injectScript("https://unpkg.com/three@0.128.0/examples/js/controls/OrbitControls.js", function () {
+            if (window.sceneManager && typeof window.sceneManager.upgradeToWebGL === "function") {
+              window.sceneManager.upgradeToWebGL();
+            }
+          });
+        } else if (window.sceneManager && typeof window.sceneManager.upgradeToWebGL === "function") {
+          window.sceneManager.upgradeToWebGL();
+        }
+      }
+      if (!window.THREE) {
+        injectScript("https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js", ensureOrbitAndUpgrade);
+      } else if (!window.THREE.OrbitControls) {
+        ensureOrbitAndUpgrade();
+      }
+    })();
+  </script>
+
+  <script src="data.js"></script>
+  <script src="panther-sprites.js"></script>
+  <script src="three-scene.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
