@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>11501 普二文組・3D 複習造島 教師分析後台</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 24px;
+      font-family: "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", sans-serif;
+      background: #0b1e32;
+      color: #f1f5f9;
+    }
+    .wrap { max-width: 1180px; margin: 0 auto; }
+    .top {
+      display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px;
+      border-bottom: 1px solid rgba(148,163,184,0.25); padding-bottom: 14px; margin-bottom: 20px;
+    }
+    h1 { margin: 0; font-size: 22px; }
+    .kpis {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin-bottom: 20px;
+    }
+    .kpi {
+      background: rgba(30, 58, 95, 0.65); border: 1px solid rgba(125, 211, 252, 0.25);
+      border-radius: 12px; padding: 14px; text-align: center;
+    }
+    .kpi-v { font-size: 26px; font-weight: 800; color: #ffd32a; }
+    .kpi-l { font-size: 12px; color: #9ec0db; margin-top: 4px; }
+    .btn {
+      padding: 8px 14px; border-radius: 9px; border: 1px solid rgba(125,211,252,0.4);
+      background: #0284c7; color: #fff; font-weight: 700; cursor: pointer; font-size: 13px;
+    }
+    table { width: 100%; border-collapse: collapse; font-size: 12.5px; background: rgba(15, 36, 58, 0.85); }
+    th, td { border: 1px solid rgba(148,163,184,0.2); padding: 8px 10px; text-align: left; }
+    th { background: rgba(14, 165, 233, 0.2); font-weight: 700; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="top">
+      <div>
+        <h1>🏝️ 11501 普二文組・3D 複習造島 教師儀表板</h1>
+        <div style="font-size:12.5px;color:#9ec0db;margin-top:4px;">即時檢視各班學生造島總進度、番茄鐘專注與六科熟練分佈</div>
+      </div>
+      <div style="display:flex;gap:8px;">
+        <button class="btn" id="refresh-btn">🔄 重新整理</button>
+        <button class="btn" id="csv-btn" style="background:#059669;">📥 匯出 CSV</button>
+      </div>
+    </div>
+
+    <div class="kpis" id="kpis"></div>
+
+    <table>
+      <thead>
+        <tr>
+          <th>班級</th><th>座號</th><th>姓名</th><th>總進度</th><th>已插旗</th>
+          <th>番茄鐘</th><th>連勝天</th><th>步數</th><th>島嶼建設</th>
+          <th>國文</th><th>英文</th><th>英聽</th><th>地理</th><th>公民</th><th>歷史</th><th>更新時間</th>
+        </tr>
+      </thead>
+      <tbody id="tbody">
+        <tr><td colspan="16" style="text-align:center;">載入中...</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <script src="data.js"></script>
+  <script>
+    let latestStudents = [];
+    const esc = (v) => String(v == null ? "" : v).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+    function render(data) {
+      // 略過被誤當成學生的試算表標題列（班級欄位是「班級」、進度不是數字）
+      latestStudents = ((data && data.students) || []).filter(
+        (s) => s && s.className !== "班級" && typeof s.overallPercent === "number"
+      );
+      const count = latestStudents.length;
+      const avgPct = count ? Math.round(latestStudents.reduce((a, b) => a + b.overallPercent, 0) / count) : 0;
+      const avgPomo = count ? (latestStudents.reduce((a, b) => a + b.totalPomodoros, 0) / count).toFixed(1) : 0;
+      const avgSteps = count ? Math.round(latestStudents.reduce((a, b) => a + b.walkSteps, 0) / count) : 0;
+
+      document.getElementById("kpis").innerHTML =
+        `<div class="kpi"><div class="kpi-v">${count}</div><div class="kpi-l">已同步學生數</div></div>` +
+        `<div class="kpi"><div class="kpi-v">${avgPct}%</div><div class="kpi-l">全班平均造島進度</div></div>` +
+        `<div class="kpi"><div class="kpi-v">🍅 ${avgPomo}</div><div class="kpi-l">平均完成番茄鐘</div></div>` +
+        `<div class="kpi"><div class="kpi-v">🚶 ${avgSteps}</div><div class="kpi-l">平均自強步數</div></div>`;
+
+      const tbody = document.getElementById("tbody");
+      if (!count) {
+        tbody.innerHTML = '<tr><td colspan="16" style="text-align:center;color:#9ec0db;">目前尚無學生同步紀錄</td></tr>';
+        return;
+      }
+      tbody.innerHTML = latestStudents
+        .map(
+          (s) => `<tr>
+            <td>${esc(s.className)}</td><td>${esc(s.seatNo)}</td><td><strong>${esc(s.name)}</strong></td>
+            <td><strong>${s.overallPercent}%</strong></td><td>${s.conqueredNodes}</td>
+            <td>${s.totalPomodoros}</td><td>${s.streakDays}</td><td>${s.walkSteps}</td><td>${s.ownedBuildings}</td>
+            <td>${s.chi}%</td><td>${s.eng}%</td><td>${s.lis}%</td>
+            <td>${s.geo}%</td><td>${s.civ}%</td><td>${s.his}%</td>
+            <td style="font-size:11px;color:#94a3b8;">${s.updatedAt}</td>
+          </tr>`
+        )
+        .join("");
+    }
+
+    function load() {
+      if (window.google && google.script && google.script.run) {
+        google.script.run.withSuccessHandler(render).getTeacherDashboardData();
+        return;
+      }
+      // 靜態網站版：直接用 fetch 呼叫 Google 後台的 JSON 介面
+      const base = window.ISLAND_DATA && window.ISLAND_DATA.meta && window.ISLAND_DATA.meta.defaultGasUrl;
+      if (!base) {
+        document.getElementById("tbody").innerHTML = '<tr><td colspan="16" style="text-align:center;color:#f87171;">找不到後台網址（data.js 未載入）</td></tr>';
+        return;
+      }
+      fetch(base + "?action=teacherData")
+        .then((r) => r.json())
+        .then(render)
+        .catch((err) => {
+          document.getElementById("tbody").innerHTML = '<tr><td colspan="16" style="text-align:center;color:#f87171;">載入失敗：' + esc(String(err)) + "</td></tr>";
+        });
+    }
+
+    document.getElementById("refresh-btn").addEventListener("click", load);
+    document.getElementById("csv-btn").addEventListener("click", () => {
+      const headers = ["班級,座號,姓名,總進度,已插旗,番茄鐘,連勝天,步數,島嶼建設,國文,英文,英聽,地理,公民,歷史,更新時間"];
+      const lines = latestStudents.map((s) =>
+        [s.className, s.seatNo, s.name, s.overallPercent, s.conqueredNodes, s.totalPomodoros, s.streakDays, s.walkSteps, s.ownedBuildings, s.chi, s.eng, s.lis, s.geo, s.civ, s.his, s.updatedAt].join(",")
+      );
+      const blob = new Blob(["\ufeff" + headers.concat(lines).join("\n")], { type: "text/csv;charset=utf-8;" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = "11501_複習造島_全班進度.csv";
+      a.click();
+    });
+
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", load);
+      window.addEventListener("load", load);
+    } else {
+      load();
+    }
+  </script>
+</body>
+</html>
