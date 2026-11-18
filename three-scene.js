@@ -633,7 +633,46 @@
       return shape;
     }
 
-    _createExtrudedLayer(radius, seed, depth, bevelSize, material) {
+    _loadTileTex(url, rx = 1, ry = 1) {
+      const THREE = window.THREE;
+      if (!THREE) return null;
+      if (!this._texLoader) this._texLoader = new THREE.TextureLoader();
+      const tex = this._texLoader.load(url);
+      tex.wrapS = THREE.RepeatWrapping;
+      tex.wrapT = THREE.RepeatWrapping;
+      tex.repeat.set(rx, ry);
+      return tex;
+    }
+
+    _getEnvTextures() {
+      const THREE = window.THREE;
+      if (this._envTex) return this._envTex;
+      // 貼圖以 world-unit 比例平鋪，ExtrudeGeometry 使用世界座標 UV（約 0.14~0.22/m）
+      const env = {
+        ocean: this._loadTileTex("assets/tex_ocean.jpg?v=7", 42, 42),
+        oceanBump: this._loadTileTex("assets/tex_ocean_bump.jpg?v=7", 42, 42),
+        sand: this._loadTileTex("assets/tex_sand.jpg?v=7", 0.15, 0.15),
+        sandBump: this._loadTileTex("assets/tex_sand_bump.jpg?v=7", 0.15, 0.15),
+        grass: this._loadTileTex("assets/tex_grass.jpg?v=7", 0.16, 0.16),
+        grassBump: this._loadTileTex("assets/tex_grass_bump.jpg?v=7", 0.16, 0.16),
+        plaza: this._loadTileTex("assets/tex_plaza.jpg?v=7", 4.6, 4.6),
+        plazaBump: this._loadTileTex("assets/tex_plaza_bump.jpg?v=7", 4.6, 4.6),
+        pathStone: this._loadTileTex("assets/tex_plaza.jpg?v=7", 7.5, 7.5),
+        wood: this._loadTileTex("assets/tex_wood.jpg?v=7", 1.4, 1.0),
+        woodBump: this._loadTileTex("assets/tex_wood_bump.jpg?v=7", 1.4, 1.0),
+        cliff: this._loadTileTex("assets/tex_cliff.jpg?v=7", 0.22, 0.22),
+        cliffTile: this._loadTileTex("assets/tex_cliff.jpg?v=7", 1.2, 0.8),
+      };
+      env.cliffWallMat = new THREE.MeshStandardMaterial({
+        color: "#f2e2c8",
+        map: env.cliff,
+        roughness: 0.88,
+      });
+      this._envTex = env;
+      return env;
+    }
+
+    _createExtrudedLayer(radius, seed, depth, bevelSize, material, sideMaterial = null) {
       const THREE = window.THREE;
       const shape = this._createOrganicShape(radius, seed);
       const geo = new THREE.ExtrudeGeometry(shape, {
@@ -645,7 +684,8 @@
         curveSegments: 26
       });
       geo.rotateX(Math.PI / 2);
-      const mesh = new THREE.Mesh(geo, material);
+      const matArg = sideMaterial ? [material, sideMaterial] : material;
+      const mesh = new THREE.Mesh(geo, matArg);
       mesh.castShadow = true;
       mesh.receiveShadow = true;
       return mesh;
@@ -797,9 +837,13 @@
         this.oceanBaseY.push(posAttr.getY(i));
       }
 
+      const env = this._getEnvTextures();
       const oceanMat = new THREE.MeshStandardMaterial({
-        color: "#2caae2",
-        roughness: 0.22,
+        color: "#c4f1ff",
+        map: env.ocean,
+        bumpMap: env.oceanBump,
+        bumpScale: 0.15,
+        roughness: 0.28,
         metalness: 0.08
       });
 
@@ -1737,13 +1781,32 @@
       const hub = new THREE.Group();
       hub.position.set(0, 0, 0);
 
-      const sandMat = new THREE.MeshStandardMaterial({ color: "#f6e5bd", roughness: 0.85 });
-      const grassMat = new THREE.MeshStandardMaterial({ color: "#68b67b", roughness: 0.78 });
-      const plazaMat = new THREE.MeshStandardMaterial({ color: "#e2e8f0", roughness: 0.7 });
+      const env = this._getEnvTextures();
+      const sandMat = new THREE.MeshStandardMaterial({
+        color: "#fff4df",
+        map: env.sand,
+        bumpMap: env.sandBump,
+        bumpScale: 0.09,
+        roughness: 0.86
+      });
+      const grassMat = new THREE.MeshStandardMaterial({
+        color: "#89d697",
+        map: env.grass,
+        bumpMap: env.grassBump,
+        bumpScale: 0.08,
+        roughness: 0.78
+      });
+      const plazaMat = new THREE.MeshStandardMaterial({
+        color: "#fffaf0",
+        map: env.plaza,
+        bumpMap: env.plazaBump,
+        bumpScale: 0.12,
+        roughness: 0.74
+      });
 
       const sandBase = this._createExtrudedLayer(13.5, 0.8, 0.65, 0.25, sandMat);
       sandBase.position.y = 0.55;
-      const grassTop = this._createExtrudedLayer(11.4, 0.8, 0.7, 0.25, grassMat);
+      const grassTop = this._createExtrudedLayer(11.4, 0.8, 0.7, 0.25, grassMat, env.cliffWallMat);
       grassTop.position.y = 1.3;
       const plazaCircle = new THREE.Mesh(new THREE.CylinderGeometry(8.1, 8.35, 0.16, 40), plazaMat);
       plazaCircle.position.y = 1.68;
@@ -1918,10 +1981,31 @@
 
     _buildRadiatingBridges() {
       const THREE = window.THREE;
-      const woodCreamMat = new THREE.MeshStandardMaterial({ color: "#fdf4e3", roughness: 0.72 });
-      const woodWarmMat = new THREE.MeshStandardMaterial({ color: "#e5b07a", roughness: 0.76 });
-      const trimBeamMat = new THREE.MeshStandardMaterial({ color: "#a46434", roughness: 0.78 });
-      const stonePierMat = new THREE.MeshStandardMaterial({ color: "#e2e8f0", roughness: 0.75 });
+      const env = this._getEnvTextures();
+      const woodCreamMat = new THREE.MeshStandardMaterial({
+        color: "#fff5e4",
+        map: env.wood,
+        bumpMap: env.woodBump,
+        bumpScale: 0.08,
+        roughness: 0.72
+      });
+      const woodWarmMat = new THREE.MeshStandardMaterial({
+        color: "#f3cb9d",
+        map: env.wood,
+        bumpMap: env.woodBump,
+        bumpScale: 0.08,
+        roughness: 0.76
+      });
+      const trimBeamMat = new THREE.MeshStandardMaterial({
+        color: "#c27d48",
+        map: env.wood,
+        roughness: 0.78
+      });
+      const stonePierMat = new THREE.MeshStandardMaterial({
+        color: "#f1e8d6",
+        map: env.cliffTile,
+        roughness: 0.78
+      });
       const foamMat = new THREE.MeshBasicMaterial({ color: "#ffffff", transparent: true, opacity: 0.72 });
 
       this.islandsData.forEach((island) => {
@@ -2418,7 +2502,15 @@
       reefMesh.position.y = -0.35;
       group.add(reefMesh);
 
-      const sandMat = new THREE.MeshStandardMaterial({ color: theme.sandColor || island.colors.sand, roughness: 0.82 });
+      const env = this._getEnvTextures();
+      const sandTint = new THREE.Color(theme.sandColor || island.colors.sand).lerp(new THREE.Color("#ffffff"), 0.25);
+      const sandMat = new THREE.MeshStandardMaterial({
+        color: sandTint,
+        map: env.sand,
+        bumpMap: env.sandBump,
+        bumpScale: 0.09,
+        roughness: 0.84
+      });
       const sandMesh = this._createExtrudedLayer(r * 0.94, seed, 0.7, 0.25, sandMat);
       sandMesh.position.y = 0.72;
       sandMesh.userData = { islandId: island.id };
@@ -2426,16 +2518,30 @@
       this.clickTargets.push(sandMesh);
 
       // 2F: Theme-customized Grassy / Scenic Plateau
-      const grassMat = new THREE.MeshStandardMaterial({ color: theme.grassColor || island.colors.ground, roughness: 0.75 });
-      const grassMesh = this._createExtrudedLayer(r * 0.78, seed, 0.75, 0.28, grassMat);
+      const grassTint = new THREE.Color(theme.grassColor || island.colors.ground).lerp(new THREE.Color("#ffffff"), 0.24);
+      const grassMat = new THREE.MeshStandardMaterial({
+        color: grassTint,
+        map: env.grass,
+        bumpMap: env.grassBump,
+        bumpScale: 0.08,
+        roughness: 0.76
+      });
+      const grassMesh = this._createExtrudedLayer(r * 0.78, seed, 0.75, 0.28, grassMat, env.cliffWallMat);
       grassMesh.position.y = 1.55;
       grassMesh.userData = { islandId: island.id };
       group.add(grassMesh);
       this.clickTargets.push(grassMesh);
 
       // 3F: Elevated Scenic Hill & Waterfall Cliff behind the landmark
-      const hillMat = new THREE.MeshStandardMaterial({ color: theme.hillColor || "#4e9a59", roughness: 0.75 });
-      const hillMesh = this._createExtrudedLayer(r * 0.36, seed + 2.1, 1.35, 0.3, hillMat);
+      const hillTint = new THREE.Color(theme.hillColor || "#4e9a59").lerp(new THREE.Color("#ffffff"), 0.22);
+      const hillMat = new THREE.MeshStandardMaterial({
+        color: hillTint,
+        map: env.grass,
+        bumpMap: env.grassBump,
+        bumpScale: 0.08,
+        roughness: 0.76
+      });
+      const hillMesh = this._createExtrudedLayer(r * 0.36, seed + 2.1, 1.35, 0.3, hillMat, env.cliffWallMat);
       hillMesh.position.set(-2.6, 2.95, -2.8);
       hillMesh.userData = { islandId: island.id };
       group.add(hillMesh);
@@ -2506,7 +2612,13 @@
       }
 
       // Wooden Dock on 1F Shoreline
-      const dockMat = new THREE.MeshStandardMaterial({ color: "#9c6644", roughness: 0.85 });
+      const dockMat = new THREE.MeshStandardMaterial({
+        color: "#e6b88a",
+        map: env.wood,
+        bumpMap: env.woodBump,
+        bumpScale: 0.08,
+        roughness: 0.82
+      });
       const dock = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.18, 2.4), dockMat);
       dock.position.set(0, 0.55, r * 0.98);
       dock.castShadow = true;
@@ -2573,13 +2685,18 @@
 
     _buildHillStairs(group, island) {
       const THREE = window.THREE;
+      const env = this._getEnvTextures();
       const stairGroup = new THREE.Group();
       const stepCount = 8;
       const startZ = 6.35;
       const endZ = 3.75;
       const startY = 1.84;
       const endY = 3.22;
-      const stepMat = new THREE.MeshStandardMaterial({ color: "#fdf6e7", roughness: 0.78 });
+      const stepMat = new THREE.MeshStandardMaterial({
+        color: "#f9efe0",
+        map: env.cliffTile,
+        roughness: 0.78
+      });
       const trimMat = new THREE.MeshStandardMaterial({ color: island.colors.primary, roughness: 0.55 });
 
       for (let i = 0; i < stepCount; i++) {
@@ -2835,14 +2952,18 @@
       const THREE = window.THREE;
       const pathRadius = r * 0.69;
 
-      // Red-brick campus promenade walkway
+      // Textured cobblestone campus promenade walkway
+      const env = this._getEnvTextures();
       const pathRing = new THREE.Mesh(
-        new THREE.RingGeometry(pathRadius - 0.55, pathRadius + 0.55, 56),
+        new THREE.RingGeometry(pathRadius - 0.65, pathRadius + 0.65, 56),
         new THREE.MeshStandardMaterial({
-          color: "#d99b82",
-          roughness: 0.88,
+          color: "#f7d4bf",
+          map: env.pathStone,
+          bumpMap: env.plazaBump,
+          bumpScale: 0.08,
+          roughness: 0.85,
           transparent: true,
-          opacity: 0.85,
+          opacity: 0.92,
           side: THREE.DoubleSide
         })
       );
@@ -4706,7 +4827,7 @@
           hemiInt: 1.08,
           sunColor: "#fff9e6",
           sunInt: 1.2,
-          ocean: "#2caae2",
+          ocean: "#c4f1ff",
           starOpacity: 0.12,
           rainbow: true,
           winColor: "#bae6fd"
@@ -4719,7 +4840,7 @@
           hemiInt: 0.82,
           sunColor: "#ff9f43",
           sunInt: 1.25,
-          ocean: "#184e77",
+          ocean: "#78a2d4",
           starOpacity: 0.45,
           rainbow: false,
           winColor: "#fde047"
@@ -4732,7 +4853,7 @@
           hemiInt: 0.65,
           sunColor: "#a29bfe",
           sunInt: 0.85,
-          ocean: "#0a3250",
+          ocean: "#3f70a6",
           starOpacity: 0.96,
           rainbow: false,
           winColor: "#fef08a"
@@ -5117,6 +5238,14 @@
       if (this.isWebGL) {
         const THREE = window.THREE;
 
+        if (this._envTex && this._envTex.ocean) {
+          this._envTex.ocean.offset.x = (this._envTex.ocean.offset.x + dt * 0.032) % 1;
+          this._envTex.ocean.offset.y = (this._envTex.ocean.offset.y + dt * 0.018) % 1;
+          if (this._envTex.oceanBump) {
+            this._envTex.oceanBump.offset.x = -this._envTex.ocean.offset.x * 0.8;
+            this._envTex.oceanBump.offset.y = this._envTex.ocean.offset.y * 0.9;
+          }
+        }
         this._oceanFrame = (this._oceanFrame || 0) + 1;
         if (this.oceanGeo && this._oceanFrame % 3 === 0) {
           const pos = this.oceanGeo.attributes.position;
