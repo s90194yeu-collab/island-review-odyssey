@@ -666,9 +666,9 @@
 
       this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
       this.renderer.setSize(width, height);
-      this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+      this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.35));
       this.renderer.shadowMap.enabled = true;
-      this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+      this.renderer.shadowMap.type = THREE.PCFShadowMap;
       this.container.appendChild(this.renderer.domElement);
 
       if (THREE.OrbitControls) {
@@ -696,8 +696,8 @@
       this.sunLight = new THREE.DirectionalLight("#fff9e6", 1.2);
       this.sunLight.position.set(36, 68, 34);
       this.sunLight.castShadow = true;
-      this.sunLight.shadow.mapSize.width = 2048;
-      this.sunLight.shadow.mapSize.height = 2048;
+      this.sunLight.shadow.mapSize.width = 1024;
+      this.sunLight.shadow.mapSize.height = 1024;
       this.sunLight.shadow.camera.near = 10;
       this.sunLight.shadow.camera.far = 260;
       const d = 105;
@@ -788,7 +788,7 @@
 
     _buildOcean() {
       const THREE = window.THREE;
-      const oceanGeo = new THREE.PlaneGeometry(520, 520, 72, 72);
+      const oceanGeo = new THREE.PlaneGeometry(520, 520, 36, 36);
       oceanGeo.rotateX(-Math.PI / 2);
 
       const posAttr = oceanGeo.attributes.position;
@@ -1187,10 +1187,11 @@
 
     _prepareGltfMeshes(model, isPantherSlot, clickData = null) {
       const THREE = window.THREE;
+      const useShadows = Boolean(isPantherSlot || (clickData && clickData.isHub));
       model.traverse((n) => {
         if (n.isMesh) {
-          n.castShadow = true;
-          n.receiveShadow = true;
+          n.castShadow = useShadows;
+          n.receiveShadow = Boolean(clickData && clickData.isHub);
           if (n.isSkinnedMesh) n.frustumCulled = false;
           // Meshy / Higgsfield 3D 匯出材質 metalness=1 在無環境貼圖時會全黑，統一補亮
           const mat = n.material;
@@ -1381,13 +1382,13 @@
     /* 載入場景建築、6 科島嶼地標與守護貓 3D GLB 模型（限流並行避免行動裝置爆記憶體） */
     _loadSceneDioramas() {
       const queue = [
-        ["hub", "assets/hub_3d.glb?v=5"],
-        ["chinese", "assets/island_chinese.glb?v=5"],
-        ["english", "assets/island_english.glb?v=5"],
-        ["listening", "assets/island_listening.glb?v=5"],
-        ["history", "assets/island_history.glb?v=5"],
-        ["geography", "assets/island_geography.glb?v=5"],
-        ["civics", "assets/island_civics.glb?v=5"],
+        ["hub", "assets/hub_3d.glb?v=6"],
+        ["chinese", "assets/island_chinese.glb?v=6"],
+        ["english", "assets/island_english.glb?v=6"],
+        ["listening", "assets/island_listening.glb?v=6"],
+        ["history", "assets/island_history.glb?v=6"],
+        ["geography", "assets/island_geography.glb?v=6"],
+        ["civics", "assets/island_civics.glb?v=6"],
       ];
       let idx = 0;
       const runNext = () => {
@@ -1400,7 +1401,7 @@
         runNext();
       }, 450);
       setTimeout(() => {
-        this._loadCatMascots("assets/cat_3d.glb?v=5");
+        this._loadCatMascots("assets/cat_3d.glb?v=6");
       }, 650);
     }
 
@@ -5108,13 +5109,16 @@
 
     _animate() {
       this.rafId = requestAnimationFrame(() => this._animate());
-      const dt = 0.016;
+      const now = performance.now();
+      const dt = Math.min(0.045, Math.max(0.008, (now - (this._lastTick || now)) / 1000));
+      this._lastTick = now;
       this.clockTime += dt;
 
       if (this.isWebGL) {
         const THREE = window.THREE;
 
-        if (this.oceanGeo) {
+        this._oceanFrame = (this._oceanFrame || 0) + 1;
+        if (this.oceanGeo && this._oceanFrame % 3 === 0) {
           const pos = this.oceanGeo.attributes.position;
           for (let i = 0; i < pos.count; i++) {
             const x = pos.getX(i);
@@ -5395,11 +5399,11 @@
       if (moveStrength > 0.05) {
         const prevX = ps.x;
         const prevZ = ps.z;
-        const rawX = Math.max(-62, Math.min(62, prevX + worldMoveX * speed * moveStrength * dt));
-        const rawZ = Math.max(-62, Math.min(62, prevZ + worldMoveZ * speed * moveStrength * dt));
+        const rawX = Math.max(-95, Math.min(95, prevX + worldMoveX * speed * moveStrength * dt));
+        const rawZ = Math.max(-95, Math.min(95, prevZ + worldMoveZ * speed * moveStrength * dt));
         const colRes = this._resolveCollisions(rawX, rawZ, ps.y, 0.42);
-        let nextX = Math.max(-62, Math.min(62, colRes.x));
-        let nextZ = Math.max(-62, Math.min(62, colRes.z));
+        let nextX = Math.max(-95, Math.min(95, colRes.x));
+        let nextZ = Math.max(-95, Math.min(95, colRes.z));
         if (ps.onGround) {
           const cliffCheck = this._getSurfaceInfoAt(nextX, nextZ);
           if (cliffCheck.groundY - surfInfoBefore.groundY > 0.72) {
@@ -5658,7 +5662,7 @@
         this.camera.position.add(deltaT);
 
         if (this.chaseCam && moved && !this._isUserOrbiting()) {
-          // 跑酷追逐視角：跑動時鏡頭自動繞到角色背後，壓低俯角、拉近距離
+          // 跑酷追逐視角：往前／斜向跑動時鏡頭繞到背後；按住 S 往鏡頭反方向倒退時鎖定鏡頭方位避免原地繞圈
           const tgt = this.controls.target;
           const cam = this.camera.position;
           const dx = cam.x - tgt.x;
@@ -5667,7 +5671,10 @@
           let ang = Math.atan2(dx, dz);
           const want = ps.faceAngle + Math.PI;
           const diff = ((want - ang + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
-          ang += diff * Math.min(1, dt * 2.6);
+          const movingTowardCam = len > 0.05 && (iy < -0.25 || (iy <= 0.1 && Math.abs(diff) > Math.PI * 0.78));
+          if (!movingTowardCam) {
+            ang += diff * Math.min(1, dt * 2.6);
+          }
           r += (this.chaseDist - r) * Math.min(1, dt * 2.2);
           const h = cam.y - tgt.y;
           const hNew = h + (this.chaseHeight - h) * Math.min(1, dt * 2.2);

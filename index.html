@@ -7,20 +7,19 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@700;800;900&family=Zen+Maru+Gothic:wght@500;700;900&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="styles.css?v=5" />
+  <link rel="stylesheet" href="styles.css?v=6" />
 </head>
 <body tabindex="-1">
   <!-- 3D 群島畫布與懸浮島嶼標籤 -->
   <div id="canvas-container" aria-label="3D 複習群島場景"></div>
   <div id="island-labels"></div>
 
-  <!-- 頂部狀態與導覽列 -->
-  <header class="top-header">
+  <!-- 頂部精簡狀態與摺疊功能資料夾 -->
+  <header class="top-header" id="top-header">
     <div class="brand-area">
       <div class="brand-icon">🏝️</div>
       <div>
-        <h1 class="brand-title">11501 普二文組・3D 複習造島計畫</h1>
-        <p class="brand-sub">南山中學第二次段考（12/01–12/02）六科整合節點確認與闖關系統</p>
+        <h1 class="brand-title">11501 普二文組・3D 複習造島</h1>
       </div>
     </div>
 
@@ -30,42 +29,45 @@
         <strong id="exam-countdown-text">倒數 14 天 (12/01–12/02)</strong>
       </div>
       <div class="stat-pill">
-        <span>🔥 自強進度</span>
+        <span>🔥</span>
         <div class="mini-progress-track">
           <div class="mini-progress-fill" id="global-progress-fill"></div>
         </div>
         <strong id="global-progress-text">0%</strong>
       </div>
       <div class="stat-pill">
-        <span>🏫 自強認證</span>
+        <span>🏅</span>
         <strong id="global-flags-text">0/25 🏅</strong>
       </div>
       <div class="stat-pill" title="完成考點勾選 (+2🐟) 或通過測驗 (+5🐟) 即可賺取小魚乾餵貓！">
-        <span>🐟 小魚乾</span>
+        <span>🐟</span>
         <strong id="fish-count-text">3</strong>
       </div>
-      <div class="stat-pill" title="校園生活「自強不息」走路遇點累積步數">
-        <span>🚶 自強步數</span>
+      <div class="stat-pill is-hidden-compact" title="校園生活「自強不息」走路遇點累積步數">
+        <span>🚶</span>
         <strong id="walk-steps-text">0 步</strong>
       </div>
     </div>
 
-    <nav class="nav-tabs">
-      <button type="button" class="nav-btn pomodoro-btn" id="pomodoro-btn" title="25 分鐘專注番茄鐘">🍅 25:00 專注</button>
-      <button type="button" class="nav-btn" id="nav-checkin-btn" title="自強不息每日簽到與連勝徽章">📅 簽到 (0天)</button>
-      <button type="button" class="nav-btn" id="nav-life-btn" title="群島建設圖鑑、隨身行囊與跨島搜尋">🏕️ 造島＆行囊</button>
-      <button type="button" class="nav-btn" id="atmosphere-toggle-btn" title="切換 3D 海域天色">☀️ 晴空海域</button>
-      <button type="button" class="nav-btn is-active" id="nav-explore-btn">🏝️ 探索</button>
-      <button type="button" class="nav-btn" id="nav-schedule-btn">📅 彈性排程</button>
-      <button type="button" class="nav-btn" id="nav-report-btn">📊 成果與 GAS 同步</button>
-      <button type="button" class="nav-btn" id="nav-admin-btn" title="檢視南山豹 3D 八向圖鑑與管理下次段考範圍">⚙️ 八向＆改版</button>
-    </nav>
+    <div class="folder-wrap menu-folder-wrap">
+      <button type="button" class="folder-toggle-btn menu-folder-btn" id="menu-folder-btn" aria-expanded="false">🎒 功能選單 ▾</button>
+      <nav class="nav-tabs folder-drawer menu-folder-drawer" id="menu-folder-drawer">
+        <button type="button" class="nav-btn pomodoro-btn" id="pomodoro-btn" title="25 分鐘專注番茄鐘">🍅 25:00 專注</button>
+        <button type="button" class="nav-btn" id="nav-checkin-btn" title="自強不息每日簽到與連勝徽章">📅 簽到 (0天)</button>
+        <button type="button" class="nav-btn" id="nav-life-btn" title="群島建設圖鑑、隨身行囊與跨島搜尋">🏕️ 造島＆行囊</button>
+        <button type="button" class="nav-btn" id="atmosphere-toggle-btn" title="切換 3D 海域天色">☀️ 晴空海域</button>
+        <button type="button" class="nav-btn is-active" id="nav-explore-btn">🏝️ 探索</button>
+        <button type="button" class="nav-btn" id="nav-schedule-btn">📅 彈性排程</button>
+        <button type="button" class="nav-btn" id="nav-report-btn">📊 成果與 GAS 同步</button>
+        <button type="button" class="nav-btn" id="nav-admin-btn" title="檢視南山豹 3D 八向圖鑑與管理下次段考範圍">⚙️ 八向＆改版</button>
+      </nav>
+    </div>
   </header>
 
-  <!-- 底部中央快速島嶼傳送列 -->
-  <div class="quick-dock">
-    <div class="island-dock-bar" id="island-dock-bar"></div>
-    <div class="camera-hint">💡 WASD / 左下圓盤操控南山豹自由奔跑跨橋與海上衝浪；Space 跳躍（連按二段跳）、Q 歡呼、R 熱舞、Shift 衝刺、E 遇點！</div>
+  <!-- 底部中央「科目島嶼」摺疊資料夾 -->
+  <div class="quick-dock" id="quick-dock">
+    <div class="island-dock-bar folder-drawer subject-folder-drawer" id="island-dock-bar"></div>
+    <button type="button" class="folder-toggle-btn subject-folder-btn" id="subject-folder-btn" aria-expanded="false">🏝️ 科目傳送 ▾</button>
   </div>
 
   <!-- 左下角南山豹虛擬圓盤搖桿 -->
@@ -87,9 +89,9 @@
     <button type="button" class="secondary-btn" id="float-walk-step-btn">🚶 走路遇點</button>
   </div>
 
-  <!-- 右下角南山豹動作與互動控制群 -->
+  <!-- 右下角南山豹動作摺疊資料夾與核心跳躍互動鍵 -->
   <div class="panther-actions-hud" id="panther-actions-hud" aria-label="南山豹動作按鍵">
-    <div class="panther-sub-actions">
+    <div class="panther-sub-actions folder-drawer action-folder-drawer" id="action-folder-drawer">
       <button type="button" class="panther-mini-btn" id="panther-cheer-btn" title="歡呼加油 (Q)">🙌 歡呼</button>
       <button type="button" class="panther-mini-btn" id="panther-dance-btn" title="熱舞應援 +1小魚乾 (R)">💃 熱舞</button>
       <button type="button" class="panther-mini-btn" id="panther-sprint-btn" title="切換加速衝刺 (Shift)">⚡ 衝刺</button>
@@ -99,6 +101,7 @@
       <button type="button" class="panther-mini-btn" id="panther-home-btn" title="返回中央自強廣場">⚓ 廣場</button>
     </div>
     <div class="panther-main-actions">
+      <button type="button" class="folder-toggle-btn action-folder-btn" id="action-folder-btn" aria-expanded="false" title="展開動作與視角資料夾">🐾 動作 ▾</button>
       <button type="button" class="panther-interact-btn" id="panther-interact-btn" title="與附近節點/島嶼互動 (E / Enter)">💬 歡呼應援</button>
       <button type="button" class="panther-jump-btn" id="panther-jump-btn" title="跳躍 / 空中連按二段跳 (Space)">🦘 跳</button>
     </div>
@@ -348,9 +351,9 @@
     })();
   </script>
 
-  <script src="data.js?v=5"></script>
-  <script src="panther-sprites.js?v=5"></script>
-  <script src="three-scene.js?v=5"></script>
-  <script src="app.js?v=5"></script>
+  <script src="data.js?v=6"></script>
+  <script src="panther-sprites.js?v=6"></script>
+  <script src="three-scene.js?v=6"></script>
+  <script src="app.js?v=6"></script>
 </body>
 </html>

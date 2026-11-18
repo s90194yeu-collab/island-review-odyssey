@@ -76,14 +76,13 @@ textarea {
   align-items: center;
   gap: 2px;
   padding: 7px 14px;
-  background: rgba(255, 252, 245, 0.94);
-  backdrop-filter: blur(8px);
+  background: rgba(255, 252, 245, 0.96);
   border: 2.5px solid var(--island-color, var(--accent-sky));
   border-bottom-width: 4.5px;
   border-radius: 18px;
   color: var(--text-main);
   cursor: pointer;
-  box-shadow: 0 8px 20px rgba(44, 100, 156, 0.22);
+  box-shadow: 0 8px 20px rgba(44, 100, 156, 0.2);
   transition: transform 0.18s ease, box-shadow 0.2s, background 0.2s;
   user-select: none;
 }
@@ -126,25 +125,112 @@ textarea {
   white-space: nowrap;
 }
 
-/* ==================== 頂部導覽與狀態列 ==================== */
+/* ==================== 頂部精簡狀態列與「功能選單」摺疊資料夾 ==================== */
 .top-header {
   position: fixed;
-  top: 12px;
+  top: 10px;
   left: 14px;
   right: 14px;
-  z-index: 20;
+  z-index: 25;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 10px 14px;
-  padding: 10px 18px;
-  background: var(--bg-panel);
-  backdrop-filter: blur(14px);
+  gap: 8px 12px;
+  padding: 8px 16px;
+  background: rgba(255, 252, 245, 0.96);
   border: 2.5px solid #ffffff;
   border-bottom: 4px solid #cbe6ff;
-  border-radius: 26px;
+  border-radius: 999px;
   box-shadow: var(--shadow-lg);
+}
+
+.is-hidden-compact {
+  display: none !important;
+}
+
+.folder-wrap {
+  position: relative;
+}
+
+.folder-toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 15px;
+  border-radius: 999px;
+  border: 2px solid #ffffff;
+  border-bottom: 3.5px solid #0284c7;
+  background: linear-gradient(180deg, #58c7ff, #1ca6f2);
+  color: #ffffff;
+  font-size: 13.5px;
+  font-weight: 900;
+  cursor: pointer;
+  white-space: nowrap;
+  touch-action: manipulation;
+  box-shadow: 0 5px 12px rgba(28, 166, 242, 0.28);
+  transition: transform 0.12s ease, filter 0.14s ease;
+}
+
+.folder-toggle-btn:hover {
+  filter: brightness(1.04);
+}
+
+.folder-toggle-btn:active {
+  transform: translateY(2px);
+}
+
+.folder-toggle-btn.is-open {
+  background: linear-gradient(180deg, #ffda47, #f59e0b);
+  border-bottom-color: #d97706;
+  color: #4a2800;
+}
+
+.subject-folder-btn {
+  background: rgba(255, 252, 245, 0.97);
+  border-color: #ffffff;
+  border-bottom-color: #7dd3fc;
+  color: #1e4b75;
+  box-shadow: var(--shadow-lg);
+}
+
+.action-folder-btn {
+  background: linear-gradient(180deg, #ff95bc, #f05a8d);
+  border-bottom-color: #c9446f;
+  color: #ffffff;
+  padding: 7px 13px;
+  font-size: 13px;
+}
+
+.folder-drawer {
+  display: none !important;
+}
+
+.folder-drawer.is-folder-open {
+  display: flex !important;
+}
+
+.menu-folder-drawer.is-folder-open {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  z-index: 40;
+  display: grid !important;
+  grid-template-columns: repeat(2, minmax(136px, 1fr));
+  gap: 8px;
+  width: min(326px, calc(100vw - 24px));
+  padding: 12px;
+  background: rgba(255, 252, 245, 0.98);
+  border: 2.5px solid #ffffff;
+  border-bottom: 4px solid #bae6fd;
+  border-radius: 22px;
+  box-shadow: var(--shadow-lg);
+}
+
+.menu-folder-drawer .nav-btn {
+  width: 100%;
+  text-align: center;
+  padding: 9px 10px;
 }
 
 .brand-area {
@@ -261,35 +347,35 @@ textarea {
   box-shadow: 0 4px 12px rgba(28, 166, 242, 0.32);
 }
 
-/* ==================== 底部中央快速島嶼傳送列 & 操作提示 ==================== */
+/* ==================== 底部中央「科目傳送」摺疊資料夾 ==================== */
 .quick-dock {
   position: fixed;
-  bottom: calc(14px + env(safe-area-inset-bottom));
-  left: 192px;
-  right: 280px;
-  z-index: 18;
+  bottom: calc(16px + env(safe-area-inset-bottom));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 22;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   pointer-events: none;
 }
 
+.quick-dock > * {
+  pointer-events: auto;
+}
+
 .island-dock-bar {
-  display: flex;
   align-items: center;
-  justify-content: flex-start;
-  gap: 6px;
-  flex-wrap: nowrap;
-  overflow-x: auto;
-  scrollbar-width: none;
-  max-width: 100%;
-  padding: 7px 11px;
-  background: var(--bg-panel);
-  backdrop-filter: blur(12px);
+  justify-content: center;
+  gap: 7px;
+  flex-wrap: wrap;
+  max-width: min(560px, calc(100vw - 24px));
+  padding: 11px 12px;
+  background: rgba(255, 252, 245, 0.98);
   border: 2.5px solid #ffffff;
   border-bottom: 4px solid #c7e5ff;
-  border-radius: 999px;
+  border-radius: 22px;
   box-shadow: var(--shadow-lg);
   pointer-events: auto;
 }
@@ -367,15 +453,14 @@ textarea {
 /* ==================== 右側「登島指揮所」側邊面板 ==================== */
 .island-panel {
   position: fixed;
-  top: 86px;
+  top: 76px;
   right: 14px;
   bottom: 14px;
   width: min(500px, calc(100vw - 28px));
   z-index: 25;
   display: flex;
   flex-direction: column;
-  background: var(--bg-panel);
-  backdrop-filter: blur(18px);
+  background: rgba(255, 252, 245, 0.97);
   border: 3px solid #ffffff;
   border-radius: 26px;
   box-shadow: var(--shadow-lg);
@@ -840,8 +925,7 @@ textarea {
   position: fixed;
   inset: 0;
   z-index: 40;
-  background: rgba(34, 82, 128, 0.42);
-  backdrop-filter: blur(8px);
+  background: rgba(34, 82, 128, 0.48);
   display: none;
   align-items: center;
   justify-content: center;
@@ -1452,13 +1536,12 @@ textarea {
 
 .panther-joy {
   position: relative;
-  width: 128px;
-  height: 128px;
+  width: 122px;
+  height: 122px;
   border-radius: 50%;
-  background: radial-gradient(circle at center, rgba(255, 250, 235, 0.94), rgba(214, 240, 255, 0.92));
+  background: radial-gradient(circle at center, rgba(255, 250, 235, 0.96), rgba(214, 240, 255, 0.95));
   border: 3.5px solid #ffffff;
   box-shadow: 0 8px 22px rgba(48, 108, 168, 0.28), 0 0 0 2.5px #7dd3fc;
-  backdrop-filter: blur(8px);
   touch-action: none;
   cursor: grab;
 }
@@ -1502,8 +1585,8 @@ textarea {
 
 .panther-knob {
   position: absolute;
-  left: 38px;
-  top: 38px;
+  left: 35px;
+  top: 35px;
   width: 52px;
   height: 52px;
   border-radius: 50%;
@@ -1580,16 +1663,18 @@ textarea {
 }
 
 .panther-sub-actions {
-  display: grid;
   grid-template-columns: repeat(4, auto);
   gap: 5px;
-  padding: 7px;
-  border-radius: 18px;
-  background: var(--bg-panel);
-  backdrop-filter: blur(12px);
+  padding: 8px;
+  border-radius: 20px;
+  background: rgba(255, 252, 245, 0.98);
   border: 2.5px solid #ffffff;
   border-bottom: 4px solid #c7e5ff;
   box-shadow: var(--shadow-lg);
+}
+
+.action-folder-drawer.is-folder-open {
+  display: grid !important;
 }
 
 .panther-mini-btn {
@@ -1687,8 +1772,9 @@ textarea {
     right: calc(min(500px, calc(100vw - 28px)) + 28px);
   }
   body.has-open-panel .quick-dock {
-    left: 192px;
-    right: calc(min(500px, calc(100vw - 28px)) + 290px);
+    left: calc((100vw - min(500px, calc(100vw - 28px))) / 2);
+    transform: translateX(-50%);
+    right: auto;
   }
   body.has-open-panel .camera-hint {
     display: none;
@@ -2017,56 +2103,47 @@ textarea {
     left: 8px;
     right: 8px;
     padding: 7px 10px;
-    gap: 6px;
+    gap: 5px 8px;
     border-radius: 20px;
   }
   .brand-area {
-    gap: 8px;
+    gap: 7px;
   }
   .brand-icon {
-    width: 30px;
-    height: 30px;
-    border-radius: 11px;
-    font-size: 16px;
+    width: 28px;
+    height: 28px;
+    border-radius: 10px;
+    font-size: 15px;
   }
   .brand-title {
-    font-size: 14px;
-  }
-  .brand-sub {
-    display: none;
+    font-size: 13.5px;
   }
   .status-pills {
-    gap: 5px;
+    gap: 4px;
+    order: 3;
     width: 100%;
     justify-content: flex-start;
   }
   .stat-pill {
-    padding: 3px 9px;
-    font-size: 12px;
+    padding: 3px 8px;
+    font-size: 11.5px;
     gap: 4px;
   }
-  .stat-pill:nth-child(2),
-  .stat-pill:nth-child(5) {
-    display: none;
+  .folder-toggle-btn {
+    padding: 6px 11px;
+    font-size: 12.5px;
   }
-  .nav-tabs {
-    flex-wrap: nowrap;
-    overflow-x: auto;
-    scrollbar-width: none;
-    width: 100%;
+  .menu-folder-drawer.is-folder-open {
+    width: min(300px, calc(100vw - 20px));
+    padding: 10px;
     gap: 6px;
   }
-  .nav-tabs::-webkit-scrollbar {
-    display: none;
-  }
   .nav-btn {
-    flex-shrink: 0;
-    white-space: nowrap;
-    font-size: 13.5px;
-    padding: 6px 11px;
+    font-size: 12.5px;
+    padding: 7px 8px;
   }
   .island-float-pill {
-    top: 162px;
+    top: 96px;
     padding: 5px 10px;
     font-size: 12.5px;
     gap: 6px;
@@ -2089,29 +2166,32 @@ textarea {
     transform: translateY(0);
   }
   .quick-dock {
-    bottom: calc(184px + env(safe-area-inset-bottom));
-    left: 10px;
-    right: 10px;
+    bottom: calc(146px + env(safe-area-inset-bottom));
+    left: 50%;
+    right: auto;
+    transform: translateX(-50%);
   }
   .island-dock-bar {
-    padding: 6px 8px;
+    width: calc(100vw - 20px);
+    padding: 8px;
+    gap: 5px;
   }
   .panther-joy-wrap {
     left: calc(10px + env(safe-area-inset-left));
     bottom: calc(12px + env(safe-area-inset-bottom));
   }
   .panther-joy {
-    width: 120px;
-    height: 120px;
+    width: 112px;
+    height: 112px;
   }
   .panther-knob {
-    left: 34px;
-    top: 34px;
+    left: 30px;
+    top: 30px;
     width: 52px;
     height: 52px;
   }
   .panther-joy-caption {
-    font-size: 11.5px;
+    font-size: 11px;
     padding: 2px 8px;
   }
   .panther-actions-hud {
@@ -2122,7 +2202,7 @@ textarea {
   .panther-sub-actions {
     grid-template-columns: repeat(4, auto);
     gap: 4px;
-    padding: 5px 6px;
+    padding: 6px;
     border-radius: 16px;
   }
   .panther-mini-btn {
@@ -2130,14 +2210,14 @@ textarea {
     font-size: 11.5px;
   }
   .panther-interact-btn {
-    max-width: 132px;
-    padding: 9px 11px;
-    font-size: 12.5px;
+    max-width: 126px;
+    padding: 8px 10px;
+    font-size: 12px;
   }
   .panther-jump-btn {
-    width: 68px;
-    height: 68px;
-    font-size: 16px;
+    width: 64px;
+    height: 64px;
+    font-size: 15.5px;
   }
   body.has-open-panel .panther-joy-wrap,
   body.has-open-panel .panther-actions-hud,
@@ -2146,11 +2226,8 @@ textarea {
     pointer-events: none;
   }
   .near-island-banner {
-    bottom: calc(242px + env(safe-area-inset-bottom));
-    font-size: 13.5px;
-  }
-  .camera-hint {
-    display: none;
+    bottom: calc(192px + env(safe-area-inset-bottom));
+    font-size: 13px;
   }
 }
 

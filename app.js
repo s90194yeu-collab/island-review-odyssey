@@ -3338,6 +3338,43 @@
     // Modal Close Buttons
     document.getElementById("close-schedule-btn").addEventListener("click", closeScheduleModal);
     document.getElementById("close-report-btn").addEventListener("click", closeReportModal);
+
+    // 3 組摺疊資料夾收納邏輯（功能選單／科目傳送／動作視角）
+    const folders = [
+      { btn: document.getElementById("menu-folder-btn"), drawer: document.getElementById("menu-folder-drawer"), closeOnItem: true },
+      { btn: document.getElementById("subject-folder-btn"), drawer: document.getElementById("island-dock-bar"), closeOnItem: true },
+      { btn: document.getElementById("action-folder-btn"), drawer: document.getElementById("action-folder-drawer"), closeOnItem: false },
+    ].filter((f) => f.btn && f.drawer);
+
+    const setFolderOpen = (target, open) => {
+      target.drawer.classList.toggle("is-folder-open", open);
+      target.btn.classList.toggle("is-open", open);
+      target.btn.setAttribute("aria-expanded", open ? "true" : "false");
+    };
+
+    folders.forEach((f) => {
+      f.btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const nextOpen = !f.drawer.classList.contains("is-folder-open");
+        folders.forEach((other) => {
+          if (other !== f) setFolderOpen(other, false);
+        });
+        setFolderOpen(f, nextOpen);
+      });
+      if (f.closeOnItem) {
+        f.drawer.addEventListener("click", (e) => {
+          if (e.target.closest("button")) setFolderOpen(f, false);
+        });
+      }
+    });
+
+    document.addEventListener("click", (e) => {
+      folders.forEach((f) => {
+        if (f.drawer.classList.contains("is-folder-open") && !f.drawer.contains(e.target) && !f.btn.contains(e.target)) {
+          setFolderOpen(f, false);
+        }
+      });
+    });
     document.getElementById("close-quiz-btn").addEventListener("click", closeQuizModal);
     document.getElementById("close-edit-btn").addEventListener("click", closeEditNodeModal);
     document.getElementById("close-encounter-btn").addEventListener("click", closeEncounterModal);
