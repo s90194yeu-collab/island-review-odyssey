@@ -725,8 +725,13 @@
       this._buildBoat();
       this._buildWalkerCat();
       this._buildPanther();
+      this._pantherRigUrls = {
+        m: "assets/panther_3d.glb?v=4",
+        f: "assets/panther_f_3d.glb?v=4",
+      };
+      this._pantherRigLoading = {};
       window.__pantherLoadStatus = "loading";
-      this.loadPantherRig("assets/panther_3d.glb?v=2", (err) => {
+      this._loadPantherRigForSex((this.pantherState && this.pantherState.sex) || "m", (err) => {
         window.__pantherLoadStatus = err ? "failed: " + (err.message || err) : "ok";
         if (err) this._setPantherEmote("⚠️ 3D 南山豹載入失敗，改用插畫版", 4);
       });
@@ -1206,14 +1211,26 @@
       });
     }
 
-    _mountCustomSlotModel(slot, wrapper) {
+    _mountCustomSlotModel(slot, wrapper, mountAsActive = true) {
       if (slot === "panther" && this.panther) {
-        if (this.panther.customGlbGroup) this.panther.group.remove(this.panther.customGlbGroup);
+        if (!wrapper.parent) this.panther.group.add(wrapper);
+        if (!mountAsActive) {
+          wrapper.visible = false;
+          return;
+        }
+        if (this.panther.customGlbGroup && this.panther.customGlbGroup !== wrapper) {
+          this.panther.customGlbGroup.visible = false;
+        }
         this.panther.customGlbGroup = wrapper;
-        this.panther.group.add(wrapper);
-        this.panther.meshHolder.visible = false;
-        this.panther.spriteHolder.visible = false;
-        this.pantherRenderMode = "glb";
+        const showGlb = !this._pantherUserPickedMode || this.pantherRenderMode === "glb";
+        if (showGlb) {
+          wrapper.visible = true;
+          this.panther.meshHolder.visible = false;
+          this.panther.spriteHolder.visible = false;
+          this.pantherRenderMode = "glb";
+        } else {
+          wrapper.visible = false;
+        }
       } else if (slot === "hub" && this.hubGroup) {
         if (this.hubHallGroup) this.hubHallGroup.visible = false;
         wrapper.position.set(0, 1.74, -2.65);
@@ -1229,6 +1246,93 @@
         this.customGlbs[slot] = wrapper;
         islGroup.add(wrapper);
       }
+    }
+
+    /* 依 clip 名稱建立動作狀態機（待機 0／走路 30／奔跑 16／跳躍 466／歡呼 28／熱舞 64） */
+    _bindPantherMixer(model, animations) {
+      const THREE = window.THREE;
+      if (!THREE || !animations || !animations.length) return null;
+      const mixer = new THREE.AnimationMixer(model);
+      const actions = {};
+      const matchers = [
+        ["idle", /^idle$/i],
+        ["walk", /^walk$/i],
+        ["run", /^run$/i],
+        ["jump", /^jump$/i],
+        ["cheer", /^(cheer|wave)$/i],
+        ["dance", /^dance$/i],
+      ];
+      animations.forEach((clip) => {
+        const cname = clip.name || "";
+        let key = null;
+        for (const [k, rx] of matchers) {
+          if (rx.test(cname)) { key = k; break; }
+        }
+        if (!key) {
+          if (/idle/i.test(cname)) key = "idle";
+          else if (/walk/i.test(cname)) key = "walk";
+          else if (/run/i.test(cname)) key = "run";
+          else if (/jump/i.test(cname)) key = "jump";
+          else if (/wave|cheer/i.test(cname)) key = "cheer";
+          else if (/dance/i.test(cname)) key = "dance";
+        }
+        if (key && !actions[key]) {
+          const act = mixer.clipAction(clip);
+          act.enabled = true;
+          if (key === "jump") {
+            act.setLoop(THREE.LoopOnce, 1);
+            act.clampWhenFinished = true;
+          }
+          actions[key] = act;
+        }
+      });
+      if (!Object.keys(actions).length) {
+        const fallback = mixer.clipAction(animations[0]);
+        fallback.enabled = true;
+        actions.single = fallback;
+      }
+      const initKey = actions.idle ? "idle" : Object.keys(actions)[0];
+      const initAct = actions[initKey];
+      initAct.setEffectiveWeight(1);
+      initAct.play();
+      return { mixer, actions, currentAnim: initKey };
+    }
+
+    _activatePantherRig(rigData) {
+      if (!this.panther || !rigData) return;
+      this._mountCustomSlotModel("panther", rigData.wrapper, true);
+      if (rigData.rig && rigData.rig.mixer) {
+        this.panther.glbMixer = rigData.rig.mixer;
+        this.panther.glbActions = rigData.rig.actions;
+        this.panther.glbRun = rigData.rig.actions.run || rigData.rig.actions.single || Object.values(rigData.rig.actions)[0] || null;
+        this.panther.glbCurrentAnim = rigData.rig.currentAnim;
+      }
+    }
+
+    _loadPantherRigForSex(sex, onDone) {
+      const targetSex = sex === "f" ? "f" : "m";
+      if (!this.panther) return;
+      if (!this.panther.glbRigs) this.panther.glbRigs = {};
+      if (this.panther.glbRigs[targetSex]) {
+        if (this.pantherState.sex === targetSex) {
+          this._activatePantherRig(this.panther.glbRigs[targetSex]);
+        }
+        if (onDone) onDone(null, this.panther.glbRigs[targetSex].wrapper);
+        return;
+      }
+      if (this._pantherRigLoading && this._pantherRigLoading[targetSex]) return;
+      if (!this._pantherRigLoading) this._pantherRigLoading = {};
+      this._pantherRigLoading[targetSex] = true;
+      const url = (this._pantherRigUrls && this._pantherRigUrls[targetSex]) || "assets/panther_3d.glb?v=4";
+      this.loadPantherRig(
+        url,
+        (err, wrapper) => {
+          this._pantherRigLoading[targetSex] = false;
+          if (onDone) onDone(err, wrapper);
+        },
+        0,
+        targetSex
+      );
     }
 
     loadGLBModel(slot, urlOrFile, onDone, tries = 0) {
@@ -1252,13 +1356,11 @@
         this._prepareGltfMeshes(model, slot === "panther");
         const wrapper = new THREE.Group();
         wrapper.add(model);
-        this._mountCustomSlotModel(slot, wrapper);
-        if (slot === "panther" && gltf.animations && gltf.animations.length && this.panther) {
-          const mixer = new THREE.AnimationMixer(model);
-          const run = mixer.clipAction(gltf.animations[0]);
-          run.play();
-          this.panther.glbMixer = mixer;
-          this.panther.glbRun = run;
+        if (slot === "panther" && this.panther) {
+          const rig = this._bindPantherMixer(model, gltf.animations);
+          this._activatePantherRig({ wrapper, rig });
+        } else {
+          this._mountCustomSlotModel(slot, wrapper);
         }
         if (onDone) onDone(null, wrapper);
       };
@@ -1272,10 +1374,10 @@
 
     /* 載入有骨架與動畫的 3D 南山豹（Higgsfield / Meshy 產生）。
        骨架單位為公分且外層 Armature 有 0.01 縮放，網格 Box3 量不準，因此改用骨頭世界座標量身高。 */
-    loadPantherRig(url, onDone, tries = 0) {
+    loadPantherRig(url, onDone, tries = 0, sexKey = null) {
       const THREE = window.THREE;
       if (!THREE || !THREE.GLTFLoader) {
-        if (tries < 50) setTimeout(() => this.loadPantherRig(url, onDone, tries + 1), 200);
+        if (tries < 50) setTimeout(() => this.loadPantherRig(url, onDone, tries + 1, sexKey), 200);
         else if (onDone) onDone(new Error("GLTFLoader 尚未載入"));
         return;
       }
@@ -1293,13 +1395,15 @@
           this._prepareGltfMeshes(model, true);
           const wrapper = new THREE.Group();
           wrapper.add(model);
-          this._mountCustomSlotModel("panther", wrapper);
-          if (gltf.animations && gltf.animations.length) {
-            const mixer = new THREE.AnimationMixer(model);
-            const run = mixer.clipAction(gltf.animations[0]);
-            run.play();
-            this.panther.glbMixer = mixer;
-            this.panther.glbRun = run;
+          const rig = this._bindPantherMixer(model, gltf.animations);
+          const slotSex = sexKey === "f" || sexKey === "m" ? sexKey : (this.pantherState.sex || "m");
+          if (!this.panther.glbRigs) this.panther.glbRigs = {};
+          const rigData = { wrapper, rig };
+          this.panther.glbRigs[slotSex] = rigData;
+          if (!sexKey || this.pantherState.sex === slotSex) {
+            this._activatePantherRig(rigData);
+          } else {
+            this._mountCustomSlotModel("panther", wrapper, false);
           }
           if (onDone) onDone(null, wrapper);
         },
@@ -3990,6 +4094,14 @@
           p.shortsGroup.visible = next !== "f";
           p.skirtMesh.visible = next === "f";
         }
+        if (this.panther.glbRigs && this.panther.glbRigs[next]) {
+          this._activatePantherRig(this.panther.glbRigs[next]);
+        } else if (this._pantherRigUrls && this._pantherRigUrls[next]) {
+          if (!silent && this.pantherRenderMode === "glb") {
+            this._setPantherEmote(next === "f" ? "👚 載入女款 3D 模型中…" : "👔 載入男款 3D 模型中…", 1.8);
+          }
+          this._loadPantherRigForSex(next);
+        }
       }
       if (!silent) {
         this._spawnPantherFX(14, ["#f6bfd0", "#a9c8ea", "#ffd32a"]);
@@ -3999,6 +4111,7 @@
 
     setPantherRenderMode(mode) {
       const next = mode === "sprite" ? "sprite" : mode === "glb" ? "glb" : "mesh";
+      this._pantherUserPickedMode = true;
       this.pantherRenderMode = next;
       if (this.panther) {
         if (this.panther.customGlbGroup) {
@@ -4009,6 +4122,9 @@
         }
         if (this.panther.spriteHolder) {
           this.panther.spriteHolder.visible = next === "sprite";
+        }
+        if (next === "glb" && this.panther.glbRigs && !this.panther.glbRigs[this.pantherState.sex]) {
+          this._loadPantherRigForSex(this.pantherState.sex);
         }
       }
       this._setPantherEmote(next === "sprite" ? "🃏 切換為 8向插畫模式" : "🤖 切換為真 3D 立體模型", 1.6);
@@ -4032,17 +4148,17 @@
     doPantherAction(actionType) {
       const ps = this.pantherState;
       if (actionType === "cheer") {
-        ps.action = { type: "cheer", timer: 1.45 };
+        ps.action = { type: "cheer", timer: 2.6 };
         if (ps.onGround) {
           ps.vy = 6.8;
           ps.onGround = false;
         }
-        this._setPantherEmote("🐾 自強不息！段考加油！", 1.9);
+        this._setPantherEmote("🐾 自強不息！段考加油！", 2.5);
         this._spawnPantherFX(22, ["#ffd32a", "#8f2130", "#38bdf8", "#10b981"], 0.5);
         if (this.callbacks.onPantherAction) this.callbacks.onPantherAction("cheer");
       } else if (actionType === "dance") {
-        ps.action = { type: "dance", timer: 1.75 };
-        this._setPantherEmote("💃 熱舞應援中！", 1.9);
+        ps.action = { type: "dance", timer: 3.6 };
+        this._setPantherEmote("💃 熱舞應援中！", 3.0);
         this._spawnPantherFX(24, ["#ff9ff3", "#ffd32a", "#48dbfb", "#1dd1a1"], 0.55);
         if (this.callbacks.onPantherAction) this.callbacks.onPantherAction("dance");
       }
@@ -5214,26 +5330,62 @@
 
       if (mode === "glb" && this.panther.customGlbGroup) {
         const spinAdd = ps.spinTimer > 0 ? (1 - ps.spinTimer / 0.48) * Math.PI * 2 : 0;
-        const danceSpin = ps.action.type === "dance" ? Math.sin(this.clockTime * 8) * 0.55 : 0;
+        const hasRealMultiAnims = this.panther.glbActions && !this.panther.glbActions.single;
+        const danceSpin = !hasRealMultiAnims && ps.action.type === "dance" ? Math.sin(this.clockTime * 8) * 0.55 : 0;
         this.panther.customGlbGroup.rotation.y = ps.faceAngle + spinAdd + danceSpin;
-        this.panther.customGlbGroup.rotation.z =
-          ps.action.type === "cheer"
+        this.panther.customGlbGroup.rotation.z = hasRealMultiAnims
+          ? 0
+          : ps.action.type === "cheer"
             ? Math.sin(this.clockTime * 16) * 0.14
             : ps.action.type === "dance"
               ? Math.sin(this.clockTime * 12) * 0.1
               : 0;
-        // 骨架動畫：移動或熱舞時播放動態，純原地歡呼／起跳則不誤播原地踏步
-        if (this.panther.glbMixer && this.panther.glbRun) {
+
+        const mixer = this.panther.glbMixer;
+        const acts = this.panther.glbActions;
+        if (mixer && acts && hasRealMultiAnims) {
+          let want = "idle";
+          if (ps.action.type === "dance" && acts.dance) want = "dance";
+          else if (ps.action.type === "cheer" && acts.cheer) want = "cheer";
+          else if (!ps.onGround && acts.jump) want = "jump";
+          else if (moved) want = sprinting && acts.run ? "run" : acts.walk ? "walk" : "run";
+          else want = acts.idle ? "idle" : Object.keys(acts)[0];
+
+          const curKey = this.panther.glbCurrentAnim;
+          const speedFor = (k) =>
+            k === "jump" ? 1.65 :
+            k === "cheer" ? 1.3 :
+            k === "dance" ? 1.15 :
+            k === "walk" ? Math.max(0.8, (moveStrength || 1) * 1.25) :
+            k === "run" ? Math.max(0.85, (moveStrength || 1) * (sprinting ? 1.3 : 1.0)) : 1;
+
+          if (want && want !== curKey && acts[want]) {
+            const prev = curKey ? acts[curKey] : null;
+            const nextAct = acts[want];
+            Object.keys(acts).forEach((k) => {
+              if (k !== want && acts[k] !== prev) acts[k].stop();
+            });
+            nextAct.enabled = true;
+            nextAct.setEffectiveTimeScale(speedFor(want));
+            nextAct.setEffectiveWeight(1);
+            nextAct.reset();
+            nextAct.play();
+            if (prev && prev !== nextAct) {
+              prev.enabled = true;
+              prev.crossFadeTo(nextAct, want === "jump" ? 0.08 : 0.16, false);
+            }
+            this.panther.glbCurrentAnim = want;
+          } else if (acts[this.panther.glbCurrentAnim]) {
+            acts[this.panther.glbCurrentAnim].setEffectiveTimeScale(speedFor(this.panther.glbCurrentAnim));
+          }
+          mixer.update(dt);
+        } else if (mixer && this.panther.glbRun) {
           const run = this.panther.glbRun;
           const active = moved || ps.action.type === "dance";
           const wantW = active ? 1 : 0;
           const w = run.getEffectiveWeight() + (wantW - run.getEffectiveWeight()) * Math.min(1, dt * 9);
           run.setEffectiveWeight(w < 0.01 ? 0 : w);
-          if (active) {
-            this.panther.glbMixer.update(dt * (sprinting ? 1.5 : 1) * Math.max(0.5, moveStrength || 1));
-          } else {
-            this.panther.glbMixer.update(0);
-          }
+          mixer.update(active ? dt * (sprinting ? 1.5 : 1) * Math.max(0.5, moveStrength || 1) : 0);
         }
       }
 
