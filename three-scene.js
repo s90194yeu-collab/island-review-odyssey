@@ -725,7 +725,11 @@
       this._buildBoat();
       this._buildWalkerCat();
       this._buildPanther();
-      this.loadPantherRig("assets/panther_3d.glb");
+      window.__pantherLoadStatus = "loading";
+      this.loadPantherRig("assets/panther_3d.glb?v=2", (err) => {
+        window.__pantherLoadStatus = err ? "failed: " + (err.message || err) : "ok";
+        if (err) this._setPantherEmote("⚠️ 3D 南山豹載入失敗，改用插畫版", 4);
+      });
 
       this.raycaster = new THREE.Raycaster();
       this.pointer = new THREE.Vector2();
