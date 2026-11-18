@@ -2175,7 +2175,7 @@
   async function publishExamConfigToGas(passcode) {
     const cleanCode = String(passcode || "").trim();
     if (!cleanCode) {
-      showToast("⚠️ 請先輸入教師發布通關密語（例如：22453000nssh）！");
+      showToast("⚠️ 請先輸入教師發布通關密語！");
       return;
     }
     const payload = {
