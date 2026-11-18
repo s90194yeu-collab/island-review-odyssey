@@ -335,7 +335,7 @@
       this.captainCat = null;
       this.boatMode = "auto"; // auto | free
       this.boatInput = { forward: 0, turn: 0 };
-      this.boatTarget = { x: 0, z: 10.5 };
+      this.boatTarget = { x: 0, z: 18.5 };
       this.boatCurrent = { x: 0, z: 10.5 };
       this.boatAngle = 0;
 
@@ -656,10 +656,10 @@
       const { width, height } = this._getViewportSize();
 
       this.scene = new THREE.Scene();
-      this.scene.background = new THREE.Color("#0e2b47");
-      this.scene.fog = new THREE.FogExp2("#12395c", 0.0028);
+      this.scene.background = new THREE.Color("#8fd8ff");
+      this.scene.fog = new THREE.FogExp2("#bce8ff", 0.0017);
 
-      this.camera = new THREE.PerspectiveCamera(45, width / height, 0.5, 520);
+      this.camera = new THREE.PerspectiveCamera(45, width / height, 0.5, 760);
       const psInit = this.pantherState;
       const initPose = this._getFollowPose(psInit.x, psInit.y, psInit.z, width, height);
       this.camera.position.copy(initPose.camPos);
@@ -678,7 +678,7 @@
         this.controls.maxPolarAngle = Math.PI / 2 - 0.1;
         this.controls.minPolarAngle = 0.25;
         this.controls.minDistance = 8;
-        this.controls.maxDistance = 320;
+        this.controls.maxDistance = 420;
         this.controls.target.copy(initPose.targetPos);
         // 記錄使用者是否正在手動轉鏡頭，避免追逐鏡頭跟他搶控制
         this._orbitHoldUntil = 0;
@@ -690,17 +690,17 @@
         });
       }
 
-      this.hemiLight = new THREE.HemisphereLight("#cbeeff", "#1d4666", 0.95);
+      this.hemiLight = new THREE.HemisphereLight("#e0f4ff", "#4c89b5", 1.08);
       this.scene.add(this.hemiLight);
 
-      this.sunLight = new THREE.DirectionalLight("#fff7e2", 1.12);
-      this.sunLight.position.set(28, 56, 26);
+      this.sunLight = new THREE.DirectionalLight("#fff9e6", 1.2);
+      this.sunLight.position.set(36, 68, 34);
       this.sunLight.castShadow = true;
       this.sunLight.shadow.mapSize.width = 2048;
       this.sunLight.shadow.mapSize.height = 2048;
       this.sunLight.shadow.camera.near = 10;
-      this.sunLight.shadow.camera.far = 200;
-      const d = 75;
+      this.sunLight.shadow.camera.far = 260;
+      const d = 105;
       this.sunLight.shadow.camera.left = -d;
       this.sunLight.shadow.camera.right = d;
       this.sunLight.shadow.camera.top = d;
@@ -726,15 +726,17 @@
       this._buildWalkerCat();
       this._buildPanther();
       this._pantherRigUrls = {
-        m: "assets/panther_3d.glb?v=4",
-        f: "assets/panther_f_3d.glb?v=4",
+        m: "assets/panther_3d.glb?v=5",
+        f: "assets/panther_f_3d.glb?v=5",
       };
       this._pantherRigLoading = {};
       window.__pantherLoadStatus = "loading";
-      this._loadPantherRigForSex((this.pantherState && this.pantherState.sex) || "m", (err) => {
+      const initSex = (this.pantherState && this.pantherState.sex) || "m";
+      this._loadPantherRigForSex(initSex, (err) => {
         window.__pantherLoadStatus = err ? "failed: " + (err.message || err) : "ok";
         if (err) this._setPantherEmote("⚠️ 3D 南山豹載入失敗，改用插畫版", 4);
       });
+      this._loadSceneDioramas();
 
       this.raycaster = new THREE.Raycaster();
       this.pointer = new THREE.Vector2();
@@ -786,7 +788,7 @@
 
     _buildOcean() {
       const THREE = window.THREE;
-      const oceanGeo = new THREE.PlaneGeometry(360, 360, 64, 64);
+      const oceanGeo = new THREE.PlaneGeometry(520, 520, 72, 72);
       oceanGeo.rotateX(-Math.PI / 2);
 
       const posAttr = oceanGeo.attributes.position;
@@ -796,9 +798,9 @@
       }
 
       const oceanMat = new THREE.MeshStandardMaterial({
-        color: "#1676a3",
-        roughness: 0.25,
-        metalness: 0.12
+        color: "#2caae2",
+        roughness: 0.22,
+        metalness: 0.08
       });
 
       const oceanMesh = new THREE.Mesh(oceanGeo, oceanMat);
@@ -808,9 +810,9 @@
       this.oceanGeo = oceanGeo;
       this.oceanMat = oceanMat;
 
-      const deepGeo = new THREE.PlaneGeometry(380, 380);
+      const deepGeo = new THREE.PlaneGeometry(560, 560);
       deepGeo.rotateX(-Math.PI / 2);
-      const deepMat = new THREE.MeshBasicMaterial({ color: "#0b3c5d" });
+      const deepMat = new THREE.MeshBasicMaterial({ color: "#1579ad" });
       const deepMesh = new THREE.Mesh(deepGeo, deepMat);
       deepMesh.position.y = -1.8;
       this.scene.add(deepMesh);
@@ -819,19 +821,19 @@
     _buildClouds() {
       const THREE = window.THREE;
       const cloudMat = new THREE.MeshStandardMaterial({
-        color: "#f8fbff",
-        roughness: 0.9,
+        color: "#ffffff",
+        roughness: 0.85,
         transparent: true,
-        opacity: 0.88
+        opacity: 0.92
       });
 
       const cloudPositions = [
-        [-48, 22, -40],
-        [24, 24, -44],
-        [52, 20, -6],
-        [-46, 22, 38],
-        [30, 23, 46],
-        [-6, 26, 2]
+        [-68, 25, -58],
+        [34, 27, -64],
+        [72, 24, -10],
+        [-64, 25, 56],
+        [44, 26, 62],
+        [-8, 30, 4]
       ];
 
       cloudPositions.forEach(([x, y, z], idx) => {
@@ -859,12 +861,12 @@
       const rainbowColors = ["#ff6b6b", "#ffa502", "#ffd32a", "#2ed573", "#1e90ff", "#9b59b6"];
       rainbowColors.forEach((col, i) => {
         const arc = new THREE.Mesh(
-          new THREE.TorusGeometry(42 - i * 0.55, 0.28, 8, 48, Math.PI),
-          new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.42 })
+          new THREE.TorusGeometry(62 - i * 0.72, 0.38, 8, 56, Math.PI),
+          new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.5 })
         );
         rainbowGroup.add(arc);
       });
-      rainbowGroup.position.set(0, -1.5, -56);
+      rainbowGroup.position.set(0, -1.5, -82);
       this.scene.add(rainbowGroup);
       this.rainbowMesh = rainbowGroup;
 
@@ -1183,7 +1185,7 @@
       return new THREE.Box3().setFromObject(model);
     }
 
-    _prepareGltfMeshes(model, isPantherSlot) {
+    _prepareGltfMeshes(model, isPantherSlot, clickData = null) {
       const THREE = window.THREE;
       model.traverse((n) => {
         if (n.isMesh) {
@@ -1205,6 +1207,9 @@
           }
           if (isPantherSlot) {
             n.userData = Object.assign({}, n.userData, { isPanther: true });
+            this.clickTargets.push(n);
+          } else if (clickData) {
+            n.userData = Object.assign({}, n.userData, clickData);
             this.clickTargets.push(n);
           }
         }
@@ -1233,7 +1238,7 @@
         }
       } else if (slot === "hub" && this.hubGroup) {
         if (this.hubHallGroup) this.hubHallGroup.visible = false;
-        wrapper.position.set(0, 1.74, -2.65);
+        wrapper.position.set(0, 1.74, -4.6);
         if (this.customGlbs.hub) this.hubGroup.remove(this.customGlbs.hub);
         this.customGlbs.hub = wrapper;
         this.hubGroup.add(wrapper);
@@ -1241,7 +1246,7 @@
         const islGroup = this.islandGroups.get(slot);
         const lm = this.landmarkGroups && this.landmarkGroups.get(slot);
         if (lm) lm.visible = false;
-        wrapper.position.set(-2.2, 3.3, -2.5);
+        wrapper.position.set(-2.6, 3.22, -2.8);
         if (this.customGlbs[slot]) islGroup.remove(this.customGlbs[slot]);
         this.customGlbs[slot] = wrapper;
         islGroup.add(wrapper);
@@ -1347,13 +1352,14 @@
         const model = gltf.scene || (gltf.scenes && gltf.scenes[0]);
         if (!model) return;
         let box = this._measureModelBox(model);
-        const targetH = slot === "panther" ? 3.8 : 5.4;
+        const targetH = slot === "panther" ? 3.8 : slot === "hub" ? 7.6 : 7.8;
         const scale = targetH / Math.max(box.max.y - box.min.y, 0.001);
         model.scale.setScalar(scale);
         box = this._measureModelBox(model);
         const center = box.getCenter(new THREE.Vector3());
         model.position.set(model.position.x - center.x, model.position.y - box.min.y, model.position.z - center.z);
-        this._prepareGltfMeshes(model, slot === "panther");
+        const clickTag = slot === "hub" ? { isHub: true } : this.islandGroups.has(slot) ? { islandId: slot } : null;
+        this._prepareGltfMeshes(model, slot === "panther", clickTag);
         const wrapper = new THREE.Group();
         wrapper.add(model);
         if (slot === "panther" && this.panther) {
@@ -1370,6 +1376,83 @@
       } else if (urlOrFile && typeof urlOrFile.arrayBuffer === "function") {
         urlOrFile.arrayBuffer().then((buf) => loader.parse(buf, "", handleGltf, (err) => onDone && onDone(err)));
       }
+    }
+
+    /* 載入場景建築、6 科島嶼地標與守護貓 3D GLB 模型（限流並行避免行動裝置爆記憶體） */
+    _loadSceneDioramas() {
+      const queue = [
+        ["hub", "assets/hub_3d.glb?v=5"],
+        ["chinese", "assets/island_chinese.glb?v=5"],
+        ["english", "assets/island_english.glb?v=5"],
+        ["listening", "assets/island_listening.glb?v=5"],
+        ["history", "assets/island_history.glb?v=5"],
+        ["geography", "assets/island_geography.glb?v=5"],
+        ["civics", "assets/island_civics.glb?v=5"],
+      ];
+      let idx = 0;
+      const runNext = () => {
+        if (idx >= queue.length) return;
+        const [slot, url] = queue[idx++];
+        this.loadGLBModel(slot, url, () => runNext());
+      };
+      setTimeout(() => {
+        runNext();
+        runNext();
+      }, 450);
+      setTimeout(() => {
+        this._loadCatMascots("assets/cat_3d.glb?v=5");
+      }, 650);
+    }
+
+    _loadCatMascots(url, tries = 0) {
+      const THREE = window.THREE;
+      if (!THREE || !THREE.GLTFLoader) {
+        if (tries < 50) setTimeout(() => this._loadCatMascots(url, tries + 1), 200);
+        return;
+      }
+      new THREE.GLTFLoader().load(
+        url,
+        (gltf) => {
+          const base = gltf.scene || (gltf.scenes && gltf.scenes[0]);
+          if (!base) return;
+          let box = this._measureModelBox(base);
+          const normScale = 2.05 / Math.max(box.max.y - box.min.y, 0.001);
+          base.scale.setScalar(normScale);
+          box = this._measureModelBox(base);
+          const center = box.getCenter(new THREE.Vector3());
+          base.position.set(base.position.x - center.x, base.position.y - box.min.y, base.position.z - center.z);
+          this._prepareGltfMeshes(base, false);
+
+          // 1. 中央廣場迎賓守護貓（點擊可看提示）
+          if (this.hubGroup) {
+            const hubCatWrap = new THREE.Group();
+            const hubCatMesh = base.clone();
+            hubCatMesh.traverse((n) => {
+              if (n.isMesh) {
+                n.userData = Object.assign({}, n.userData, { isHub: true });
+                this.clickTargets.push(n);
+              }
+            });
+            hubCatWrap.add(hubCatMesh);
+            hubCatWrap.position.set(-3.8, 1.76, 4.4);
+            hubCatWrap.rotation.y = 0.42;
+            this.hubGroup.add(hubCatWrap);
+            this._addCircleCollider(-3.8, 4.4, 0.72, 3.8);
+          }
+
+          // 2. 島嶼巡邏學士貓同步升級為真 3D 公仔
+          if (this.walkerCat && this.walkerCat.group) {
+            const walkerClone = base.clone();
+            walkerClone.scale.multiplyScalar(0.72);
+            while (this.walkerCat.group.children.length) {
+              this.walkerCat.group.remove(this.walkerCat.group.children[0]);
+            }
+            this.walkerCat.group.add(walkerClone);
+          }
+        },
+        undefined,
+        () => {}
+      );
     }
 
     /* 載入有骨架與動畫的 3D 南山豹（Higgsfield / Meshy 產生）。
@@ -1657,16 +1740,16 @@
       const grassMat = new THREE.MeshStandardMaterial({ color: "#68b67b", roughness: 0.78 });
       const plazaMat = new THREE.MeshStandardMaterial({ color: "#e2e8f0", roughness: 0.7 });
 
-      const sandBase = this._createExtrudedLayer(7.4, 0.8, 0.65, 0.25, sandMat);
+      const sandBase = this._createExtrudedLayer(13.5, 0.8, 0.65, 0.25, sandMat);
       sandBase.position.y = 0.55;
-      const grassTop = this._createExtrudedLayer(6.2, 0.8, 0.7, 0.25, grassMat);
+      const grassTop = this._createExtrudedLayer(11.4, 0.8, 0.7, 0.25, grassMat);
       grassTop.position.y = 1.3;
-      const plazaCircle = new THREE.Mesh(new THREE.CylinderGeometry(4.4, 4.55, 0.16, 32), plazaMat);
+      const plazaCircle = new THREE.Mesh(new THREE.CylinderGeometry(8.1, 8.35, 0.16, 40), plazaMat);
       plazaCircle.position.y = 1.68;
 
-      // 真 3D 南山紅磚白柱鐘塔校園大廳
+      // 真 3D 南山紅磚白柱鐘塔校園大廳（未載入 hub_3d.glb 前之備援模型）
       const hallGroup = new THREE.Group();
-      hallGroup.position.set(0, 1.74, -2.65);
+      hallGroup.position.set(0, 1.74, -4.6);
       const brickMat = new THREE.MeshStandardMaterial({ color: "#b34b3b", roughness: 0.72 });
       const trimMat = new THREE.MeshStandardMaterial({ color: "#f8fafc", roughness: 0.5 });
       const slateMat = new THREE.MeshStandardMaterial({ color: "#2b425c", roughness: 0.45 });
@@ -1749,17 +1832,17 @@
       });
       this.hubHallGroup = hallGroup;
       hub.add(hallGroup);
-      this._addBoxCollider(0, -2.65, 2.35, 0.92, 0, 6.2);
+      this._addBoxCollider(0, -4.6, 3.6, 2.35, 0, 8.2);
 
       // 中央羅盤許願水池
       const fountain = new THREE.Group();
-      fountain.position.set(0, 1.76, 0.25);
-      const fRim = new THREE.Mesh(new THREE.CylinderGeometry(0.92, 1.02, 0.24, 20), trimMat);
+      fountain.position.set(0, 1.76, 0.8);
+      const fRim = new THREE.Mesh(new THREE.CylinderGeometry(0.96, 1.08, 0.24, 24), trimMat);
       fRim.position.y = 0.12;
-      const fWater = new THREE.Mesh(new THREE.CylinderGeometry(0.76, 0.76, 0.26, 20), new THREE.MeshBasicMaterial({ color: "#38bdf8" }));
+      const fWater = new THREE.Mesh(new THREE.CylinderGeometry(0.8, 0.8, 0.26, 24), new THREE.MeshBasicMaterial({ color: "#38bdf8" }));
       fWater.position.y = 0.13;
-      const starRing = new THREE.Mesh(new THREE.OctahedronGeometry(0.3, 0), goldMat);
-      starRing.position.y = 0.38;
+      const starRing = new THREE.Mesh(new THREE.OctahedronGeometry(0.32, 0), goldMat);
+      starRing.position.y = 0.4;
       starRing.scale.set(1.2, 0.45, 1.2);
       fountain.add(fRim, fWater, starRing);
       fountain.traverse((c) => {
@@ -1772,11 +1855,11 @@
         starRing.rotation.y = t * 0.9;
       });
       hub.add(fountain);
-      this._addCircleCollider(0, 0.25, 0.92, 3.0);
+      this._addCircleCollider(0, 0.8, 0.98, 3.0);
 
       // Hub 自強不息總進度公佈欄 + 校園長椅
       const hubBoard = this._buildCampusBulletinBoard("hub", "🏫 南山自強複習榜", "#8f2130");
-      hubBoard.position.set(2.55, 1.76, 2.05);
+      hubBoard.position.set(4.8, 1.76, 2.8);
       hubBoard.rotation.y = -0.35;
       hubBoard.traverse((c) => {
         if (c.isMesh) {
@@ -1785,30 +1868,47 @@
         }
       });
       hub.add(hubBoard);
-      this._addBoxCollider(2.55, 2.05, 0.92, 0.32, -0.35, 3.8);
+      this._addBoxCollider(4.8, 2.8, 0.92, 0.32, -0.35, 3.8);
 
-      [-2.85, 2.85].forEach((bx) => {
+      [-5.4, 5.4].forEach((bx) => {
         const b = this._buildCampusBench();
-        b.position.set(bx, 1.76, -0.2);
+        b.position.set(bx, 1.76, -0.3);
         b.rotation.y = bx < 0 ? 0.55 : -0.55;
         hub.add(b);
-        this._addCircleCollider(bx, -0.2, 0.58, 2.6);
+        this._addCircleCollider(bx, -0.3, 0.58, 2.6);
       });
 
-      // Hub Streetlamps
-      const hubLampMat = new THREE.MeshBasicMaterial({ color: "#fde047" });
+      // Hub 可愛路燈 & 草坡粉彩花叢
+      const hubLampMat = new THREE.MeshBasicMaterial({ color: "#fef08a" });
       this.nightGlowMaterials.push(hubLampMat);
-      [-3.45, 3.45].forEach((lx) => {
+      [-5.6, 5.6].forEach((lx) => {
         const post = new THREE.Mesh(
-          new THREE.CylinderGeometry(0.06, 0.08, 1.55, 8),
-          new THREE.MeshStandardMaterial({ color: "#334155" })
+          new THREE.CylinderGeometry(0.07, 0.09, 1.65, 8),
+          new THREE.MeshStandardMaterial({ color: "#475569" })
         );
-        post.position.set(lx, 2.42, 2.15);
-        const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.2, 10, 10), hubLampMat);
-        bulb.position.set(lx, 3.25, 2.15);
+        post.position.set(lx, 2.48, 3.3);
+        const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.22, 10, 10), hubLampMat);
+        bulb.position.set(lx, 3.36, 3.3);
         hub.add(post, bulb);
-        this._addCircleCollider(lx, 2.15, 0.25, 3.4);
+        this._addCircleCollider(lx, 3.3, 0.28, 3.5);
       });
+      const flowerColors = ["#ff8ab4", "#ffd13b", "#a78bfa", "#34d399"];
+      for (let i = 0; i < 14; i++) {
+        const ang = (i / 14) * Math.PI * 2 + 0.18;
+        const fr = 9.2 + (i % 3) * 0.55;
+        const flGroup = new THREE.Group();
+        const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.06, 0.25, 6), grassMat);
+        stem.position.y = 0.12;
+        const bud = new THREE.Mesh(
+          new THREE.SphereGeometry(0.18, 8, 8),
+          new THREE.MeshStandardMaterial({ color: flowerColors[i % flowerColors.length], roughness: 0.5 })
+        );
+        bud.scale.set(1.2, 0.72, 1.2);
+        bud.position.y = 0.28;
+        flGroup.add(stem, bud);
+        flGroup.position.set(Math.cos(ang) * fr, 1.56, Math.sin(ang) * fr);
+        hub.add(flGroup);
+      }
 
       hub.add(sandBase, grassTop, plazaCircle);
       this.scene.add(hub);
@@ -1817,39 +1917,129 @@
 
     _buildRadiatingBridges() {
       const THREE = window.THREE;
-      const woodMat = new THREE.MeshStandardMaterial({ color: "#b07241", roughness: 0.8 });
-      const railMat = new THREE.MeshStandardMaterial({ color: "#e5c396", roughness: 0.7 });
+      const woodCreamMat = new THREE.MeshStandardMaterial({ color: "#fdf4e3", roughness: 0.72 });
+      const woodWarmMat = new THREE.MeshStandardMaterial({ color: "#e5b07a", roughness: 0.76 });
+      const trimBeamMat = new THREE.MeshStandardMaterial({ color: "#a46434", roughness: 0.78 });
+      const stonePierMat = new THREE.MeshStandardMaterial({ color: "#e2e8f0", roughness: 0.75 });
+      const foamMat = new THREE.MeshBasicMaterial({ color: "#ffffff", transparent: true, opacity: 0.72 });
 
       this.islandsData.forEach((island) => {
         const target = new THREE.Vector3(island.position.x, 0, island.position.z);
         const dir = target.clone().normalize();
+        const perpAxis = new THREE.Vector3(-dir.z, 0, dir.x);
         const totalDist = target.length();
-        const startDist = 6.2;
-        const endDist = totalDist - island.radius * 0.92;
+        const startDist = 11.4;
+        const endDist = totalDist - island.radius * 0.86;
         if (endDist <= startDist) return;
 
         const bridgeGroup = new THREE.Group();
-        const steps = 15;
+        const accentMat = new THREE.MeshStandardMaterial({ color: island.colors.primary, roughness: 0.5 });
+        const goldMat = new THREE.MeshStandardMaterial({ color: "#ffd32a", roughness: 0.3 });
+        const lanternGlowMat = new THREE.MeshBasicMaterial({ color: "#fff5b8" });
+        this.nightGlowMaterials.push(lanternGlowMat);
+
+        const steps = 24;
+        const deckW = 2.55;
+        const railOffset = 1.22;
+        const segLen = (endDist - startDist) / steps;
+        let prevPts = null;
+
         for (let i = 0; i <= steps; i++) {
           const t = i / steps;
           const dist = startDist + (endDist - startDist) * t;
-          const archY = 0.65 + Math.sin(t * Math.PI) * 1.15;
-          const plank = new THREE.Mesh(new THREE.BoxGeometry(1.45, 0.16, 1.35), woodMat);
-          plank.position.set(dir.x * dist, archY, dir.z * dist);
+          const archY = 0.78 + Math.sin(t * Math.PI) * 1.45;
+          const cx = dir.x * dist;
+          const cz = dir.z * dist;
+
+          // 雙色糖果木紋橋面
+          const plank = new THREE.Mesh(
+            new THREE.BoxGeometry(deckW, 0.2, segLen * 0.92),
+            i % 2 === 0 ? woodCreamMat : woodWarmMat
+          );
+          plank.position.set(cx, archY, cz);
           plank.lookAt(dir.x * (dist + 1), archY, dir.z * (dist + 1));
           plank.castShadow = true;
+          plank.receiveShadow = true;
           bridgeGroup.add(plank);
 
-          if (i % 2 === 0) {
-            const pPos = plank.position;
-            const perp = new THREE.Vector3(-dir.z, 0, dir.x).multiplyScalar(0.68);
+          // 兩側緣石邊條
+          [-1, 1].forEach((side) => {
+            const curb = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.26, segLen * 0.98), trimBeamMat);
+            curb.position.set(cx + perpAxis.x * railOffset * side, archY + 0.05, cz + perpAxis.z * railOffset * side);
+            curb.lookAt(
+              dir.x * (dist + 1) + perpAxis.x * railOffset * side,
+              archY + 0.05,
+              dir.z * (dist + 1) + perpAxis.z * railOffset * side
+            );
+            bridgeGroup.add(curb);
+          });
+
+          // 欄杆與連續扶手
+          const curPts = [-1, 1].map((side) =>
+            new THREE.Vector3(cx + perpAxis.x * railOffset * side, archY + 0.62, cz + perpAxis.z * railOffset * side)
+          );
+          if (prevPts) {
+            curPts.forEach((pNow, sideIdx) => {
+              const pPrev = prevPts[sideIdx];
+              const mid = pNow.clone().add(pPrev).multiplyScalar(0.5);
+              const railLen = pNow.distanceTo(pPrev);
+              const rail = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, railLen + 0.06), accentMat);
+              rail.position.copy(mid);
+              rail.lookAt(pNow);
+              bridgeGroup.add(rail);
+            });
+          }
+          prevPts = curPts;
+
+          if (i % 3 === 0) {
             [-1, 1].forEach((side) => {
-              const post = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.55, 6), railMat);
-              post.position.set(pPos.x + perp.x * side, archY + 0.3, pPos.z + perp.z * side);
-              bridgeGroup.add(post);
+              const post = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.1, 0.72, 8), woodCreamMat);
+              post.position.set(cx + perpAxis.x * railOffset * side, archY + 0.36, cz + perpAxis.z * railOffset * side);
+              const orb = new THREE.Mesh(new THREE.SphereGeometry(0.14, 10, 10), lanternGlowMat);
+              orb.position.set(cx + perpAxis.x * railOffset * side, archY + 0.78, cz + perpAxis.z * railOffset * side);
+              bridgeGroup.add(post, orb);
+            });
+          }
+
+          // 海面石墩柱與浪花圈
+          if (i === 5 || i === 12 || i === 19) {
+            [-0.85, 0.85].forEach((side) => {
+              const px = cx + perpAxis.x * side;
+              const pz = cz + perpAxis.z * side;
+              const pier = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.28, archY + 1.1, 8), stonePierMat);
+              pier.position.set(px, (archY - 1.1) * 0.5, pz);
+              const foam = new THREE.Mesh(new THREE.RingGeometry(0.28, 0.46, 12), foamMat);
+              foam.rotation.x = -Math.PI / 2;
+              foam.position.set(px, 0.25, pz);
+              bridgeGroup.add(pier, foam);
             });
           }
         }
+
+        // 橋頭＆島口迎賓彩門拱門（搭配金星徽章）
+        [0.04, 0.96].forEach((gateT) => {
+          const gDist = startDist + (endDist - startDist) * gateT;
+          const gY = 0.78 + Math.sin(gateT * Math.PI) * 1.45;
+          const gate = new THREE.Group();
+          gate.position.set(dir.x * gDist, gY, dir.z * gDist);
+          gate.lookAt(dir.x * (gDist + 1), gY, dir.z * (gDist + 1));
+
+          [-railOffset, railOffset].forEach((gx) => {
+            const pillar = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.17, 2.35, 10), woodCreamMat);
+            pillar.position.set(gx, 1.18, 0);
+            pillar.castShadow = true;
+            const cuff = new THREE.Mesh(new THREE.CylinderGeometry(0.19, 0.19, 0.25, 10), accentMat);
+            cuff.position.set(gx, 1.85, 0);
+            gate.add(pillar, cuff);
+          });
+          const lintel = new THREE.Mesh(new THREE.BoxGeometry(deckW + 0.55, 0.34, 0.32), accentMat);
+          lintel.position.set(0, 2.35, 0);
+          const star = new THREE.Mesh(new THREE.OctahedronGeometry(0.24, 0), goldMat);
+          star.position.set(0, 2.7, 0);
+          gate.add(lintel, star);
+          bridgeGroup.add(gate);
+        });
+
         this.scene.add(bridgeGroup);
       });
     }
@@ -1875,7 +2065,7 @@
       };
 
       // 1. 海島露營帳篷 (Hub 左側草坡)
-      makeDeco("bld-tent", { x: -4.45, y: 1.66, z: 0.65 }, 0.9, (g) => {
+      makeDeco("bld-tent", { x: -8.6, y: 1.66, z: 1.6 }, 0.95, (g) => {
         const tent = new THREE.Mesh(
           new THREE.ConeGeometry(1.05, 1.35, 4),
           new THREE.MeshStandardMaterial({ color: "#ff7f50", roughness: 0.7 })
@@ -1892,7 +2082,7 @@
       });
 
       // 2. 貝殼許願噴泉 (Hub 右側草坡)
-      makeDeco("bld-fountain", { x: 4.45, y: 1.66, z: 0.65 }, 0.95, (g) => {
+      makeDeco("bld-fountain", { x: 8.6, y: 1.66, z: 1.6 }, 0.98, (g) => {
         const basin = new THREE.Mesh(
           new THREE.CylinderGeometry(1.0, 1.12, 0.35, 16),
           new THREE.MeshStandardMaterial({ color: "#e2e8f0" })
@@ -1917,7 +2107,7 @@
 
       // 3. 櫻花野餐墊 (Chinese Island — 平鋪不擋路)
       const pChi = islPos("chinese");
-      makeDeco("bld-picnic", { x: pChi.x + 4.4, y: 1.86, z: pChi.z + 1.8 }, 0, (g) => {
+      makeDeco("bld-picnic", { x: pChi.x + 8.6, y: 1.86, z: pChi.z + 3.2 }, 0, (g) => {
         const mat = new THREE.Mesh(
           new THREE.BoxGeometry(1.5, 0.08, 1.2),
           new THREE.MeshStandardMaterial({ color: "#ff9ff3" })
@@ -1932,7 +2122,7 @@
 
       // 4. 和風石燈籠組 (English Island)
       const pEng = islPos("english");
-      makeDeco("bld-lantern", { x: pEng.x + 4.8, y: 1.85, z: pEng.z + 1.6 }, 0.45, (g) => {
+      makeDeco("bld-lantern", { x: pEng.x + 8.8, y: 1.85, z: pEng.z + 2.8 }, 0.5, (g) => {
         const stone = new THREE.MeshStandardMaterial({ color: "#94a3b8" });
         const glow = new THREE.MeshBasicMaterial({ color: "#fde047" });
         this.nightGlowMaterials.push(glow);
@@ -1948,7 +2138,7 @@
 
       // 5. 天文觀星台 (Geography Island)
       const pGeo = islPos("geography");
-      makeDeco("bld-telescope", { x: pGeo.x + 4.8, y: 1.85, z: pGeo.z + 1.6 }, 0.78, (g) => {
+      makeDeco("bld-telescope", { x: pGeo.x + 8.8, y: 1.85, z: pGeo.z + 2.8 }, 0.8, (g) => {
         const dome = new THREE.Mesh(
           new THREE.SphereGeometry(0.72, 14, 12, 0, Math.PI * 2, 0, Math.PI / 2),
           new THREE.MeshStandardMaterial({ color: "#38bdf8" })
@@ -1970,7 +2160,7 @@
 
       // 6. 夢幻旋轉木馬 (Listening Island)
       const pLis = islPos("listening");
-      makeDeco("bld-carousel", { x: pLis.x + 4.6, y: 1.85, z: pLis.z + 1.6 }, 0.92, (g) => {
+      makeDeco("bld-carousel", { x: pLis.x + 8.6, y: 1.85, z: pLis.z + 2.8 }, 0.95, (g) => {
         const spinner = new THREE.Group();
         const roof = new THREE.Mesh(
           new THREE.ConeGeometry(1.15, 0.72, 12),
@@ -2000,7 +2190,7 @@
 
       // 7. 海景摩天輪 (Civics Island)
       const pCiv = islPos("civics");
-      makeDeco("bld-ferris", { x: pCiv.x + 5.0, y: 1.85, z: pCiv.z + 1.6 }, 0.9, (g) => {
+      makeDeco("bld-ferris", { x: pCiv.x + 9.0, y: 1.85, z: pCiv.z + 2.8 }, 0.92, (g) => {
         const standL = new THREE.Mesh(
           new THREE.CylinderGeometry(0.08, 0.12, 2.2, 8),
           new THREE.MeshStandardMaterial({ color: "#f8fafc" })
@@ -2034,7 +2224,7 @@
 
       // 8. 自強不息黃金貓雕像 (History Island)
       const pHis = islPos("history");
-      makeDeco("bld-statue", { x: pHis.x + 4.8, y: 1.85, z: pHis.z + 1.6 }, 0.75, (g) => {
+      makeDeco("bld-statue", { x: pHis.x + 8.8, y: 1.85, z: pHis.z + 2.8 }, 0.78, (g) => {
         const goldMat = new THREE.MeshStandardMaterial({
           color: "#ffd32a",
           emissive: "#d97706",
@@ -2244,36 +2434,38 @@
 
       // 3F: Elevated Scenic Hill & Waterfall Cliff behind the landmark
       const hillMat = new THREE.MeshStandardMaterial({ color: theme.hillColor || "#4e9a59", roughness: 0.75 });
-      const hillMesh = this._createExtrudedLayer(r * 0.42, seed + 2.1, 1.35, 0.3, hillMat);
-      hillMesh.position.set(-2.2, 2.95, -2.5);
+      const hillMesh = this._createExtrudedLayer(r * 0.36, seed + 2.1, 1.35, 0.3, hillMat);
+      hillMesh.position.set(-2.6, 2.95, -2.8);
       hillMesh.userData = { islandId: island.id };
       group.add(hillMesh);
       this.clickTargets.push(hillMesh);
+      // 3D 地標台座安全碰撞圈，防止穿進山丘中央 3D 模型內部
+      this._addCircleCollider(island.position.x - 2.6, island.position.z - 2.8, 3.05, 11.5);
 
       // Geography island gets contrasting volcanic rock & glacier ice shelf on 2F/3F
       if (island.id === "geography") {
         const lavaSlab = new THREE.Mesh(
-          new THREE.CylinderGeometry(2.4, 2.8, 0.38, 12),
+          new THREE.CylinderGeometry(3.4, 4.0, 0.38, 12),
           new THREE.MeshStandardMaterial({ color: "#3d312d", roughness: 0.9 })
         );
-        lavaSlab.position.set(-3.8, 1.78, -0.6);
+        lavaSlab.position.set(-6.4, 1.78, -0.8);
         const iceShelf = new THREE.Mesh(
-          new THREE.CylinderGeometry(2.3, 2.7, 0.36, 12),
+          new THREE.CylinderGeometry(3.2, 3.8, 0.36, 12),
           new THREE.MeshStandardMaterial({ color: "#dcf6ff", roughness: 0.35 })
         );
-        iceShelf.position.set(2.4, 1.78, -1.2);
+        iceShelf.position.set(4.8, 1.78, -1.4);
         group.add(lavaSlab, iceShelf);
       }
 
       // 3F Dynamic Waterfall cascading down the hill cliff!
-      this._buildWaterfall(group, -1.7, -1.9);
+      this._buildWaterfall(group, 2.8, -0.5);
 
       // Walkable 2F -> 3F stone stairs on south flank of hill terrace
       this._buildHillStairs(group, island);
 
       // Campus Bulletin Board ("自強不息・各科進度榜") & Campus Bench on South Entrance Plaza
       const islBoard = this._buildCampusBulletinBoard(island.id, `🏫 ${island.name} · 進度榜`, island.colors.primary);
-      islBoard.position.set(-2.3, 1.78, 5.1);
+      islBoard.position.set(-3.4, 1.78, 8.8);
       islBoard.rotation.y = 0.18;
       islBoard.traverse((c) => {
         if (c.isMesh) {
@@ -2282,13 +2474,35 @@
         }
       });
       group.add(islBoard);
-      this._addBoxCollider(island.position.x - 2.3, island.position.z + 5.1, 0.92, 0.32, 0.18, 4.0);
+      this._addBoxCollider(island.position.x - 3.4, island.position.z + 8.8, 0.92, 0.32, 0.18, 4.0);
 
       const bench = this._buildCampusBench();
-      bench.position.set(1.2, 1.78, 5.5);
+      bench.position.set(1.8, 1.78, 9.2);
       bench.rotation.y = -0.15;
       group.add(bench);
-      this._addCircleCollider(island.position.x + 1.2, island.position.z + 5.5, 0.58, 2.6);
+      this._addCircleCollider(island.position.x + 1.8, island.position.z + 9.2, 0.58, 2.6);
+
+      // 可愛草坪花叢點綴放大後的綠地廣場
+      const lawnColors = [island.colors.accent || "#ff9ff3", "#ffd32a", "#7dd3fc", "#ffffff"];
+      for (let fi = 0; fi < 16; fi++) {
+        const ang = (fi / 16) * Math.PI * 2 + seed * 0.25;
+        const fr = r * (0.46 + (fi % 3) * 0.11);
+        const fx = Math.cos(ang) * fr;
+        const fz = Math.sin(ang) * fr;
+        if (Math.hypot(fx + 2.6, fz + 2.8) < r * 0.4) continue;
+        const fGroup = new THREE.Group();
+        const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.06, 0.22, 6), grassMat);
+        stem.position.y = 0.11;
+        const petal = new THREE.Mesh(
+          new THREE.SphereGeometry(0.19, 8, 8),
+          new THREE.MeshStandardMaterial({ color: lawnColors[fi % lawnColors.length], roughness: 0.45 })
+        );
+        petal.scale.set(1.25, 0.72, 1.25);
+        petal.position.y = 0.25;
+        fGroup.add(stem, petal);
+        fGroup.position.set(fx, 1.84, fz);
+        group.add(fGroup);
+      }
 
       // Wooden Dock on 1F Shoreline
       const dockMat = new THREE.MeshStandardMaterial({ color: "#9c6644", roughness: 0.85 });
@@ -2333,11 +2547,11 @@
 
       // SVG Guardian Cat Standee
       if (island.guardianCat) {
-        const catObj = this._createSvgCatStandee(island.guardianCat, 1.15, {
+        const catObj = this._createSvgCatStandee(island.guardianCat, 1.22, {
           islandId: island.id,
           isCat: true
         });
-        const catPos = new THREE.Vector3(3.1, 1.82, 4.3);
+        const catPos = new THREE.Vector3(5.6, 1.82, 7.2);
         catObj.group.position.copy(catPos);
         group.add(catObj.group);
         this.islandCats.set(island.id, {
@@ -2346,7 +2560,7 @@
           jumpTime: 0,
           phase: Math.random() * Math.PI * 2
         });
-        this._addCircleCollider(island.position.x + 3.1, island.position.z + 4.3, 0.56, 3.6);
+        this._addCircleCollider(island.position.x + 5.6, island.position.z + 7.2, 0.62, 3.6);
       }
 
       // Walking Path & Waypoints
@@ -2359,27 +2573,27 @@
     _buildHillStairs(group, island) {
       const THREE = window.THREE;
       const stairGroup = new THREE.Group();
-      const stepCount = 7;
-      const startZ = 3.65;
-      const endZ = 1.65;
+      const stepCount = 8;
+      const startZ = 6.35;
+      const endZ = 3.75;
       const startY = 1.84;
       const endY = 3.22;
-      const stepMat = new THREE.MeshStandardMaterial({ color: "#e7dec8", roughness: 0.78 });
-      const trimMat = new THREE.MeshStandardMaterial({ color: island.colors.primary, roughness: 0.6 });
+      const stepMat = new THREE.MeshStandardMaterial({ color: "#fdf6e7", roughness: 0.78 });
+      const trimMat = new THREE.MeshStandardMaterial({ color: island.colors.primary, roughness: 0.55 });
 
       for (let i = 0; i < stepCount; i++) {
         const t = (i + 0.5) / stepCount;
         const stepH = 0.24;
-        const step = new THREE.Mesh(new THREE.BoxGeometry(1.75, stepH, 0.36), stepMat);
-        step.position.set(-1.8, startY + t * (endY - startY) - stepH * 0.42, startZ + t * (endZ - startZ));
+        const step = new THREE.Mesh(new THREE.BoxGeometry(2.05, stepH, 0.42), stepMat);
+        step.position.set(-2.2, startY + t * (endY - startY) - stepH * 0.42, startZ + t * (endZ - startZ));
         step.castShadow = true;
         step.receiveShadow = true;
         stairGroup.add(step);
       }
 
-      [-0.94, 0.94].forEach((rx) => {
-        const rail = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.24, 2.25), trimMat);
-        rail.position.set(-1.8 + rx, (startY + endY) * 0.5 + 0.16, (startZ + endZ) * 0.5);
+      [-1.08, 1.08].forEach((rx) => {
+        const rail = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.26, 2.75), trimMat);
+        rail.position.set(-2.2 + rx, (startY + endY) * 0.5 + 0.18, (startZ + endZ) * 0.5);
         rail.rotation.x = Math.atan2(endY - startY, startZ - endZ);
         stairGroup.add(rail);
       });
@@ -2433,9 +2647,9 @@
       const THREE = window.THREE;
       const theme = this._getIslandTheme(island);
       const house = new THREE.Group();
-      house.position.set(-5.6, 1.85, 2.8);
+      house.position.set(-9.6, 1.85, 4.4);
       house.rotation.y = 0.45;
-      house.scale.setScalar(1.18);
+      house.scale.setScalar(1.24);
 
       const wall = new THREE.Mesh(
         new THREE.BoxGeometry(1.25, 0.95, 1.05),
@@ -2509,7 +2723,7 @@
     _buildTreasureChest(group, island) {
       const THREE = window.THREE;
       const chest = new THREE.Group();
-      chest.position.set(5.4, 1.88, -0.8);
+      chest.position.set(9.2, 1.88, -1.2);
       const box = new THREE.Mesh(
         new THREE.BoxGeometry(0.7, 0.48, 0.52),
         new THREE.MeshStandardMaterial({ color: "#a0522d", roughness: 0.7 })
@@ -2528,7 +2742,7 @@
         }
       });
       group.add(chest);
-      this._addBoxCollider(island.position.x + 5.4, island.position.z - 0.8, 0.46, 0.38, 0, 2.8);
+      this._addBoxCollider(island.position.x + 9.2, island.position.z - 1.2, 0.46, 0.38, 0, 2.8);
     }
 
     _buildClusteredForest(group, island, r, seed) {
@@ -3172,8 +3386,8 @@
     _buildLighthouse(group, island) {
       const THREE = window.THREE;
       const lhGroup = new THREE.Group();
-      lhGroup.position.set(4.5, 1.82, -3.4);
-      lhGroup.scale.setScalar(1.22);
+      lhGroup.position.set(8.0, 1.82, -5.8);
+      lhGroup.scale.setScalar(1.28);
 
       const body = new THREE.Mesh(
         new THREE.CylinderGeometry(0.32, 0.52, 2.3, 16),
@@ -3221,7 +3435,7 @@
 
       group.add(lhGroup);
       this.lighthouseMeshes.set(island.id, { beam, bulb });
-      this._addCircleCollider(island.position.x + 4.5, island.position.z - 3.4, 0.72, 5.6);
+      this._addCircleCollider(island.position.x + 8.0, island.position.z - 5.8, 0.78, 5.6);
     }
 
     _buildNodeBeacon(group, islandId, node, x, z, pawTex, angle) {
@@ -3938,13 +4152,13 @@
 
       // 1. Central Nanshan Hub Island
       const hubDist = Math.hypot(x, z);
-      if (hubDist <= 4.35) {
+      if (hubDist <= 8.2) {
         maxGround = Math.max(maxGround, 1.76);
         onLand = true;
-      } else if (hubDist <= 6.0) {
+      } else if (hubDist <= 11.25) {
         maxGround = Math.max(maxGround, 1.56);
         onLand = true;
-      } else if (hubDist <= 7.25) {
+      } else if (hubDist <= 13.3) {
         maxGround = Math.max(maxGround, 0.82);
         onLand = true;
       }
@@ -3956,13 +4170,13 @@
         const len = Math.hypot(ix, iz) || 1;
         const dxAxis = ix / len;
         const dzAxis = iz / len;
-        const startDist = 5.95;
-        const endDist = len - island.radius * 0.88;
+        const startDist = 11.1;
+        const endDist = len - island.radius * 0.84;
         const proj = x * dxAxis + z * dzAxis;
         const perp = Math.abs(-x * dzAxis + z * dxAxis);
-        if (proj >= startDist && proj <= endDist && perp <= 1.25) {
+        if (proj >= startDist && proj <= endDist && perp <= 1.75) {
           const t = Math.max(0, Math.min(1, (proj - startDist) / Math.max(endDist - startDist, 0.01)));
-          const bridgeY = 0.74 + Math.sin(t * Math.PI) * 1.15;
+          const bridgeY = 0.84 + Math.sin(t * Math.PI) * 1.45;
           if (bridgeY > maxGround) maxGround = bridgeY;
           onLand = true;
         }
@@ -3973,21 +4187,21 @@
         const r = island.radius;
 
         // Wooden dock
-        if (Math.abs(dx) <= 0.95 && dz >= r * 0.65 && dz <= r * 1.18) {
+        if (Math.abs(dx) <= 1.15 && dz >= r * 0.65 && dz <= r * 1.18) {
           maxGround = Math.max(maxGround, 0.66);
           onLand = true;
           onIsland = island;
         }
         // Walkable 2F -> 3F stone stairs on south flank of hill terrace
-        if (Math.abs(dx + 1.8) <= 0.94 && dz >= 1.55 && dz <= 3.72) {
-          const st = Math.max(0, Math.min(1, (3.72 - dz) / 2.17));
+        if (Math.abs(dx + 2.2) <= 1.18 && dz >= 3.6 && dz <= 6.45) {
+          const st = Math.max(0, Math.min(1, (6.45 - dz) / 2.85));
           maxGround = Math.max(maxGround, 1.84 + st * (3.25 - 1.84));
           onLand = true;
           onIsland = island;
         }
         // 3F Hill terrace
-        const hillDist = Math.hypot(dx + 2.2, dz + 2.5);
-        if (hillDist <= r * 0.43) {
+        const hillDist = Math.hypot(dx + 2.6, dz + 2.8);
+        if (hillDist <= r * 0.37) {
           maxGround = Math.max(maxGround, 3.25);
           onLand = true;
           onIsland = island;
@@ -4484,15 +4698,15 @@
 
       const presets = {
         day: {
-          bg: "#0e2b47",
-          fog: "#12395c",
-          hemiSky: "#cbeeff",
-          hemiGround: "#1d4666",
-          hemiInt: 0.95,
-          sunColor: "#fff7e2",
-          sunInt: 1.12,
-          ocean: "#1676a3",
-          starOpacity: 0.22,
+          bg: "#8fd8ff",
+          fog: "#bce8ff",
+          hemiSky: "#e0f4ff",
+          hemiGround: "#4c89b5",
+          hemiInt: 1.08,
+          sunColor: "#fff9e6",
+          sunInt: 1.2,
+          ocean: "#2caae2",
+          starOpacity: 0.12,
           rainbow: true,
           winColor: "#bae6fd"
         },
@@ -4680,8 +4894,8 @@
       const aspect = Math.max((width || 1200) / Math.max(height || 800, 1), 0.42);
       const distScale = Math.min(Math.max(1, 1.32 / aspect), 2.85);
       return {
-        camPos: new THREE.Vector3(0, 62 * distScale, 84 * distScale),
-        targetPos: new THREE.Vector3(0, 0, -2.0)
+        camPos: new THREE.Vector3(0, 98 * distScale, 134 * distScale),
+        targetPos: new THREE.Vector3(0, 0, -2.5)
       };
     }
 
@@ -4701,7 +4915,7 @@
       this._orbitHoldUntil = 0;
       this.selectedIslandId = null;
       this.boatMode = "auto";
-      this.boatTarget = { x: 0, z: 10.5 };
+      this.boatTarget = { x: 0, z: 18.5 };
       if (this.walkerCat) this.walkerCat.group.visible = false;
       this.refreshAllStates();
       this._checkPantherProximity();
