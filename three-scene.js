@@ -1167,6 +1167,45 @@
     }
 
     /* ==================== Blender .glb & Higgsfield .svg 轉 3D 模型擴充介面 ==================== */
+    _measureModelBox(model) {
+      const THREE = window.THREE;
+      const boneBox = new THREE.Box3();
+      model.updateMatrixWorld(true);
+      model.traverse((o) => {
+        if (o.isBone) boneBox.expandByPoint(o.getWorldPosition(new THREE.Vector3()));
+      });
+      if (!boneBox.isEmpty()) return boneBox;
+      return new THREE.Box3().setFromObject(model);
+    }
+
+    _prepareGltfMeshes(model, isPantherSlot) {
+      const THREE = window.THREE;
+      model.traverse((n) => {
+        if (n.isMesh) {
+          n.castShadow = true;
+          n.receiveShadow = true;
+          if (n.isSkinnedMesh) n.frustumCulled = false;
+          // Meshy / Higgsfield 3D 匯出材質 metalness=1 在無環境貼圖時會全黑，統一補亮
+          const mat = n.material;
+          if (mat && mat.isMeshStandardMaterial) {
+            mat.metalnessMap = null;
+            mat.metalness = 0;
+            mat.roughness = 0.85;
+            if (mat.map) {
+              mat.emissive = new THREE.Color(0xffffff);
+              mat.emissiveMap = mat.map;
+              mat.emissiveIntensity = 0.25;
+            }
+            mat.needsUpdate = true;
+          }
+          if (isPantherSlot) {
+            n.userData = Object.assign({}, n.userData, { isPanther: true });
+            this.clickTargets.push(n);
+          }
+        }
+      });
+    }
+
     _mountCustomSlotModel(slot, wrapper) {
       if (slot === "panther" && this.panther) {
         if (this.panther.customGlbGroup) this.panther.group.remove(this.panther.customGlbGroup);
@@ -1192,35 +1231,35 @@
       }
     }
 
-    loadGLBModel(slot, urlOrFile, onDone) {
+    loadGLBModel(slot, urlOrFile, onDone, tries = 0) {
       const THREE = window.THREE;
       if (!THREE || !THREE.GLTFLoader) {
-        if (onDone) onDone(new Error("GLTFLoader 尚未載入"));
+        if (tries < 50) setTimeout(() => this.loadGLBModel(slot, urlOrFile, onDone, tries + 1), 200);
+        else if (onDone) onDone(new Error("GLTFLoader 尚未載入"));
         return;
       }
       const loader = new THREE.GLTFLoader();
       const handleGltf = (gltf) => {
         const model = gltf.scene || (gltf.scenes && gltf.scenes[0]);
         if (!model) return;
-        const box = new THREE.Box3().setFromObject(model);
-        const size = new THREE.Vector3();
-        const center = new THREE.Vector3();
-        box.getSize(size);
-        box.getCenter(center);
-
+        let box = this._measureModelBox(model);
         const targetH = slot === "panther" ? 3.8 : 5.4;
-        const scale = targetH / Math.max(size.y, 0.01);
-        const wrapper = new THREE.Group();
+        const scale = targetH / Math.max(box.max.y - box.min.y, 0.001);
         model.scale.setScalar(scale);
-        model.position.set(-center.x * scale, -box.min.y * scale, -center.z * scale);
-        model.traverse((n) => {
-          if (n.isMesh) {
-            n.castShadow = true;
-            n.receiveShadow = true;
-          }
-        });
+        box = this._measureModelBox(model);
+        const center = box.getCenter(new THREE.Vector3());
+        model.position.set(model.position.x - center.x, model.position.y - box.min.y, model.position.z - center.z);
+        this._prepareGltfMeshes(model, slot === "panther");
+        const wrapper = new THREE.Group();
         wrapper.add(model);
         this._mountCustomSlotModel(slot, wrapper);
+        if (slot === "panther" && gltf.animations && gltf.animations.length && this.panther) {
+          const mixer = new THREE.AnimationMixer(model);
+          const run = mixer.clipAction(gltf.animations[0]);
+          run.play();
+          this.panther.glbMixer = mixer;
+          this.panther.glbRun = run;
+        }
         if (onDone) onDone(null, wrapper);
       };
 
@@ -1236,7 +1275,6 @@
     loadPantherRig(url, onDone, tries = 0) {
       const THREE = window.THREE;
       if (!THREE || !THREE.GLTFLoader) {
-        // GLTFLoader 以 async 載入，可能稍晚才就緒
         if (tries < 50) setTimeout(() => this.loadPantherRig(url, onDone, tries + 1), 200);
         else if (onDone) onDone(new Error("GLTFLoader 尚未載入"));
         return;
@@ -1247,42 +1285,12 @@
           if (!this.panther) return;
           const model = gltf.scene || (gltf.scenes && gltf.scenes[0]);
           if (!model) return;
-          const boneBox = () => {
-            const b = new THREE.Box3();
-            model.updateMatrixWorld(true);
-            model.traverse((o) => {
-              if (o.isBone) b.expandByPoint(o.getWorldPosition(new THREE.Vector3()));
-            });
-            return b;
-          };
-          let box = boneBox();
-          if (box.isEmpty()) box = new THREE.Box3().setFromObject(model);
+          let box = this._measureModelBox(model);
           const targetH = 3.8;
           model.scale.setScalar(targetH / Math.max(box.max.y - box.min.y, 0.001));
-          box = boneBox();
+          box = this._measureModelBox(model);
           model.position.y -= box.min.y;
-          model.traverse((n) => {
-            if (n.isMesh) {
-              n.castShadow = true;
-              n.receiveShadow = true;
-              n.frustumCulled = false; // 蒙皮網格的靜態包圍盒不準，避免被誤判為視野外
-              // Meshy 的 PBR 金屬度為 1，場景沒有環境貼圖會整隻變全黑：關掉金屬度並用貼圖輕微補亮
-              const mat = n.material;
-              if (mat && mat.isMeshStandardMaterial) {
-                mat.metalnessMap = null;
-                mat.metalness = 0;
-                mat.roughness = 0.85;
-                if (mat.map) {
-                  mat.emissive = new THREE.Color(0xffffff);
-                  mat.emissiveMap = mat.map;
-                  mat.emissiveIntensity = 0.25;
-                }
-                mat.needsUpdate = true;
-              }
-              n.userData = Object.assign({}, n.userData, { isPanther: true });
-              this.clickTargets.push(n);
-            }
-          });
+          this._prepareGltfMeshes(model, true);
           const wrapper = new THREE.Group();
           wrapper.add(model);
           this._mountCustomSlotModel("panther", wrapper);
@@ -1303,10 +1311,11 @@
       );
     }
 
-    loadSVGModel(slot, svgTextOrFile, onDone) {
+    loadSVGModel(slot, svgTextOrFile, onDone, tries = 0) {
       const THREE = window.THREE;
       if (!THREE || !THREE.SVGLoader) {
-        if (onDone) onDone(new Error("SVGLoader 尚未載入"));
+        if (tries < 25) setTimeout(() => this.loadSVGModel(slot, svgTextOrFile, onDone, tries + 1), 200);
+        else if (onDone) onDone(new Error("SVGLoader 尚未載入"));
         return;
       }
       const buildFromSvgText = (svgText) => {
@@ -4573,6 +4582,7 @@
 
     flyToOverview() {
       this.cameraMode = "overview";
+      this._orbitHoldUntil = 0;
       this.selectedIslandId = null;
       this.boatMode = "auto";
       this.boatTarget = { x: 0, z: 10.5 };
@@ -4592,6 +4602,7 @@
       const island = this.islandsData.find((i) => i.id === islandId);
       if (!island) return;
       this.cameraMode = "follow";
+      this._orbitHoldUntil = 0;
       this.selectedIslandId = islandId;
       this.boatMode = "auto";
       this.boatTarget = {
@@ -5203,19 +5214,25 @@
 
       if (mode === "glb" && this.panther.customGlbGroup) {
         const spinAdd = ps.spinTimer > 0 ? (1 - ps.spinTimer / 0.48) * Math.PI * 2 : 0;
-        this.panther.customGlbGroup.rotation.y = ps.faceAngle + spinAdd;
-        // 骨架動畫：移動時播放跑步（衝刺加快），停下來回到第一格姿勢
+        const danceSpin = ps.action.type === "dance" ? Math.sin(this.clockTime * 8) * 0.55 : 0;
+        this.panther.customGlbGroup.rotation.y = ps.faceAngle + spinAdd + danceSpin;
+        this.panther.customGlbGroup.rotation.z =
+          ps.action.type === "cheer"
+            ? Math.sin(this.clockTime * 16) * 0.14
+            : ps.action.type === "dance"
+              ? Math.sin(this.clockTime * 12) * 0.1
+              : 0;
+        // 骨架動畫：移動或熱舞時播放動態，純原地歡呼／起跳則不誤播原地踏步
         if (this.panther.glbMixer && this.panther.glbRun) {
           const run = this.panther.glbRun;
-          const active = moved || ps.action.type === "dance" || !ps.onGround;
-          // 權重 1 = 跑步；權重 0 = 回到模型原本的站姿（A-pose），中間平滑混合
+          const active = moved || ps.action.type === "dance";
           const wantW = active ? 1 : 0;
           const w = run.getEffectiveWeight() + (wantW - run.getEffectiveWeight()) * Math.min(1, dt * 9);
           run.setEffectiveWeight(w < 0.01 ? 0 : w);
           if (active) {
             this.panther.glbMixer.update(dt * (sprinting ? 1.5 : 1) * Math.max(0.5, moveStrength || 1));
           } else {
-            this.panther.glbMixer.update(0); // 不推進時間，只套用混合後的姿勢
+            this.panther.glbMixer.update(0);
           }
         }
       }
@@ -5253,7 +5270,7 @@
         this.panther.spriteHolder.lookAt(this.camera.position.x, this.panther.group.position.y, this.camera.position.z);
       }
       if (this.panther.emoteSprite && this.panther.emoteSprite.visible) {
-        this.panther.emoteSprite.position.y = mode === "sprite" ? 5.2 : 3.45;
+        this.panther.emoteSprite.position.y = mode === "sprite" ? 5.2 : mode === "glb" ? 4.35 : 3.45;
         this.panther.emoteSprite.lookAt(
           this.camera.position.x,
           this.panther.group.position.y + this.panther.emoteSprite.position.y,

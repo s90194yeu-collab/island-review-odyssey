@@ -2391,8 +2391,9 @@
           <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between;">
             <strong>🐾 南山豹顯示引擎切換：</strong>
             <div style="display:flex;flex-wrap:wrap;gap:8px;">
-              <button type="button" class="dock-btn ${curMode === "sprite" ? "is-active" : ""}" id="mode-sprite-btn">🃏 Higgsfield 8向公仔（原版）</button>
-              <button type="button" class="dock-btn ${curMode === "mesh" ? "is-active" : ""}" id="mode-mesh-btn">🤖 幾何積木 3D 模型</button>
+              <button type="button" class="dock-btn ${curMode === "glb" ? "is-active" : ""}" id="mode-glb-btn">🐆 3D 骨架南山豹</button>
+              <button type="button" class="dock-btn ${curMode === "sprite" ? "is-active" : ""}" id="mode-sprite-btn">🃏 Higgsfield 8向公仔</button>
+              <button type="button" class="dock-btn ${curMode === "mesh" ? "is-active" : ""}" id="mode-mesh-btn">🤖 幾何積木 3D</button>
             </div>
           </div>
           <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding-top:8px;border-top:1px solid rgba(255,255,255,0.12);">
@@ -2536,6 +2537,19 @@
     });
 
     if (activeAdminTab === "gallery") {
+      document.getElementById("mode-glb-btn")?.addEventListener("click", () => {
+        if (!sceneManager) return;
+        if (sceneManager.panther && sceneManager.panther.customGlbGroup) {
+          sceneManager.setPantherRenderMode("glb");
+          renderAdminModal();
+        } else {
+          showToast("⏳ 正在載入 3D 骨架南山豹...");
+          sceneManager.loadPantherRig("assets/panther_3d.glb?v=2", (err) => {
+            if (err) showToast("⚠️ 3D 模型載入失敗，維持插畫版");
+            renderAdminModal();
+          });
+        }
+      });
       document.getElementById("mode-mesh-btn")?.addEventListener("click", () => {
         if (sceneManager) sceneManager.setPantherRenderMode("mesh");
         renderAdminModal();
