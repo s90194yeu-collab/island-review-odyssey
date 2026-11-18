@@ -31,6 +31,15 @@
       padding: 8px 14px; border-radius: 9px; border: 1px solid rgba(125,211,252,0.4);
       background: #0284c7; color: #fff; font-weight: 700; cursor: pointer; font-size: 13px;
     }
+    .auth-bar {
+      display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
+      background: rgba(30, 58, 95, 0.72); border: 1px solid rgba(250, 204, 21, 0.35);
+      border-radius: 12px; padding: 12px 14px; margin-bottom: 16px;
+    }
+    .auth-bar input {
+      padding: 8px 12px; border-radius: 8px; border: 1px solid rgba(148,163,184,0.35);
+      background: rgba(9, 19, 34, 0.75); color: #f8fafc; font-size: 13px; min-width: 210px;
+    }
     table { width: 100%; border-collapse: collapse; font-size: 12.5px; background: rgba(15, 36, 58, 0.85); }
     th, td { border: 1px solid rgba(148,163,184,0.2); padding: 8px 10px; text-align: left; }
     th { background: rgba(14, 165, 233, 0.2); font-weight: 700; }
@@ -47,6 +56,13 @@
         <button class="btn" id="refresh-btn">🔄 重新整理</button>
         <button class="btn" id="csv-btn" style="background:#059669;">📥 匯出 CSV</button>
       </div>
+    </div>
+
+    <div class="auth-bar" id="auth-bar">
+      <span id="auth-label" style="font-size:13px;font-weight:700;color:#fde68a;">🔒 請輸入教師口令以檢視全班進度：</span>
+      <input type="password" id="teacher-pass-input" placeholder="請輸入教師口令..." />
+      <button class="btn" id="unlock-btn">🔓 驗證並載入</button>
+      <button class="btn" id="logout-btn" style="display:none;background:#475569;">🚪 鎖定登出</button>
     </div>
 
     <div class="kpis" id="kpis"></div>
@@ -68,11 +84,51 @@
   <script src="data.js"></script>
   <script>
     let latestStudents = [];
+    const PASS_KEY = "nssh_teacher_pass";
     const esc = (v) => String(v == null ? "" : v).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
+    function getSavedPass() {
+      const inp = document.getElementById("teacher-pass-input");
+      const val = (inp && inp.value.trim()) || sessionStorage.getItem(PASS_KEY) || "";
+      return val;
+    }
+
+    function setUnlockedUI(unlocked, msg) {
+      const inp = document.getElementById("teacher-pass-input");
+      const unlockBtn = document.getElementById("unlock-btn");
+      const logoutBtn = document.getElementById("logout-btn");
+      const label = document.getElementById("auth-label");
+      if (unlocked) {
+        if (inp) inp.style.display = "none";
+        if (unlockBtn) unlockBtn.style.display = "none";
+        if (logoutBtn) logoutBtn.style.display = "inline-block";
+        if (label) { label.textContent = msg || "🔓 教師身分已驗證（僅於本分頁暫存）"; label.style.color = "#86efac"; }
+      } else {
+        if (inp) inp.style.display = "inline-block";
+        if (unlockBtn) unlockBtn.style.display = "inline-block";
+        if (logoutBtn) logoutBtn.style.display = "none";
+        if (label) { label.textContent = msg || "🔒 請輸入教師口令以檢視全班進度："; label.style.color = "#fde68a"; }
+      }
+    }
+
     function render(data) {
+      const tbody = document.getElementById("tbody");
+      if (!data || !data.ok) {
+        if (data && data.authRequired) {
+          sessionStorage.removeItem(PASS_KEY);
+          setUnlockedUI(false, "🔒 口令無效或尚未驗證，請重新輸入教師口令：");
+          document.getElementById("kpis").innerHTML = "";
+          tbody.innerHTML = '<tr><td colspan="16" style="text-align:center;color:#fde68a;">請先輸入教師口令後點選「解鎖並載入」</td></tr>';
+          return;
+        }
+        setUnlockedUI(false, "⚠️ 後端訊息：" + esc((data && data.error) || "讀取失敗"));
+        tbody.innerHTML = '<tr><td colspan="16" style="text-align:center;color:#f87171;">' + esc((data && data.error) || "讀取失敗") + "</td></tr>";
+        return;
+      }
+
+      setUnlockedUI(true);
       // 略過被誤當成學生的試算表標題列（班級欄位是「班級」、進度不是數字）
-      latestStudents = ((data && data.students) || []).filter(
+      latestStudents = (data.students || []).filter(
         (s) => s && s.className !== "班級" && typeof s.overallPercent === "number"
       );
       const count = latestStudents.length;
@@ -106,8 +162,16 @@
     }
 
     function load() {
+      const pass = getSavedPass();
+      if (!pass) {
+        setUnlockedUI(false);
+        document.getElementById("kpis").innerHTML = "";
+        document.getElementById("tbody").innerHTML = '<tr><td colspan="16" style="text-align:center;color:#fde68a;">請輸入教師口令以檢視全班進度</td></tr>';
+        return;
+      }
+      sessionStorage.setItem(PASS_KEY, pass);
       if (window.google && google.script && google.script.run) {
-        google.script.run.withSuccessHandler(render).getTeacherDashboardData();
+        google.script.run.withSuccessHandler(render).getTeacherDashboardData(pass);
         return;
       }
       // 靜態網站版：直接用 fetch 呼叫 Google 後台的 JSON 介面
@@ -116,7 +180,7 @@
         document.getElementById("tbody").innerHTML = '<tr><td colspan="16" style="text-align:center;color:#f87171;">找不到後台網址（data.js 未載入）</td></tr>';
         return;
       }
-      fetch(base + "?action=teacherData")
+      fetch(base + "?action=teacherData&passcode=" + encodeURIComponent(pass))
         .then((r) => r.json())
         .then(render)
         .catch((err) => {
@@ -124,6 +188,16 @@
         });
     }
 
+    document.getElementById("unlock-btn").addEventListener("click", load);
+    document.getElementById("teacher-pass-input").addEventListener("keydown", (e) => {
+      if (e.key === "Enter") load();
+    });
+    document.getElementById("logout-btn").addEventListener("click", () => {
+      sessionStorage.removeItem(PASS_KEY);
+      const inp = document.getElementById("teacher-pass-input");
+      if (inp) inp.value = "";
+      load();
+    });
     document.getElementById("refresh-btn").addEventListener("click", load);
     document.getElementById("csv-btn").addEventListener("click", () => {
       const headers = ["班級,座號,姓名,總進度,已插旗,番茄鐘,連勝天,步數,島嶼建設,國文,英文,英聽,地理,公民,歷史,更新時間"];
