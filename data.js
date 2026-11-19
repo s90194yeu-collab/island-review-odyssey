@@ -1350,5 +1350,220 @@ window.ISLAND_DATA = {
     "2026-11-28": ["chi-l6", "geo-l6", "civ-l3b", "his-t4"],
     "2026-11-29": ["chi-feng", "geo-l8", "civ-l4b", "his-t6"],
     "2026-11-30": ["eng-l6", "lis-1119"]
-  }
+  },
+
+  /**
+   * 散落於六科島嶼（必須嚴格對應該科考點）與寬廣海域的 30 枚「段考情報知識點」
+   */
+  intelItems: [
+    // 1. 國文島（4 枚｜僅限國文 L5 / L6 / L8 / 馮諼）
+    {
+      id: "intel-chi-1", islandId: "chinese", subject: "國文", nodeId: "chi-l5", locationType: "island",
+      title: "〈散戲〉雙線反諷密碼",
+      fact: "洪醒夫〈散戲〉以臺上〈精忠岳飛〉的忠孝莊嚴，強對比臺下「阿旺嫂抱子演秦檜」等荒謬現實，凸顯 1970 年代歌仔戲班在電視崛起衝擊下的無奈沒落；金發伯最終宣告「不再演〈精忠岳飛〉」，象徵向現實低頭。",
+      hint: "國文島東北花林草坡旁", localPos: { x: 8.2, z: -7.6 }
+    },
+    {
+      id: "intel-chi-2", islandId: "chinese", subject: "國文", nodeId: "chi-l6", locationType: "island",
+      title: "〈勞山道士〉穿牆術關鍵字",
+      fact: "蒲松齡《聊齋志異》（核心古文十五篇）〈勞山道士〉中，道士叮嚀「潔持，否則不驗」，指唯有心地純正不貪求炫耀才能修道成功；重要虛實詞：「陰有歸志（暗中）」、「薄暮（迫近黃昏）」、「何遽（怎麼立刻）」。",
+      hint: "國文島西側樹影草坪處", localPos: { x: -11.4, z: -1.8 }
+    },
+    {
+      id: "intel-chi-3", islandId: "chinese", subject: "國文", nodeId: "chi-l8", locationType: "island",
+      title: "〈石壕吏〉與〈寄黃幾復〉名句",
+      fact: "杜甫〈石壕吏〉採用「藏問於答（省問存答）」筆法，全篇僅錄老婦哭訴而差吏之凶狠躍然紙上；黃庭堅為宋代「江西詩派」宗祖，倡「點鐵成金」，〈寄黃幾復〉千古名聯為「桃李春風一杯酒，江湖夜雨十年燈」。",
+      hint: "國文島西南側步道旁", localPos: { x: -8.6, z: 10.2 }
+    },
+    {
+      id: "intel-chi-4", islandId: "chinese", subject: "國文", nodeId: "chi-feng", locationType: "island",
+      title: "馮諼「狡兔三窟」全解析",
+      fact: "《戰國策》（劉向編、國別體）〈馮諼客孟嘗君〉：第一窟「焚券市義」買回薛地民心；第二窟「西遊於梁」借魏王壓力使齊王復相孟嘗君；第三窟「請立先王宗廟於薛」確保封地永續安穩。",
+      hint: "國文島東南野餐草地南側", localPos: { x: 10.6, z: 8.2 }
+    },
+
+    // 2. 英文島（4 枚｜僅限英文 L4 / L5 / L6 / R2）
+    {
+      id: "intel-eng-1", islandId: "english", subject: "英文", nodeId: "eng-l4", locationType: "island",
+      title: "Day of the Dead 亡靈節祭壇符號",
+      fact: "L4 介紹墨西哥亡靈節（Día de los Muertos）以歡慶態度紀念逝者，家人搭建華麗祭壇 ofrenda，點燃萬壽菊（marigolds）與蠟燭引領先人靈魂返家團聚，核心精神為愛與記憶延續。",
+      hint: "英文島東北草坪角落", localPos: { x: 7.8, z: -7.8 }
+    },
+    {
+      id: "intel-eng-2", islandId: "english", subject: "英文", nodeId: "eng-l5", locationType: "island",
+      title: "L5〈Kyoto〉文化保存與核心片語",
+      fact: "L5〈Kyoto〉探討京都木造町家建築、傳統工藝職人（artisans）在現代化浪潮下的保存張力；必背考試高頻片語如 stand the test of time（經得起時間考驗）、be rooted in（根植於）。",
+      hint: "英文島西側竹木林邊緣", localPos: { x: -11.0, z: -1.6 }
+    },
+    {
+      id: "intel-eng-3", islandId: "english", subject: "英文", nodeId: "eng-l6", locationType: "island",
+      title: "L6 段考範圍精準避雷情報",
+      fact: "⚠️ 高CP應考情報：第二次段考 L6〈The Country of the Blind〉『課文閱讀內容不考』！請把複習重心放在 L6 單字表、慣用句型結構與寫作手冊（Writing Handbook）演練上！",
+      hint: "英文島西南入口坡地旁", localPos: { x: -8.2, z: 10.0 }
+    },
+    {
+      id: "intel-eng-4", islandId: "english", subject: "英文", nodeId: "eng-r2", locationType: "island",
+      title: "R2〈Disappearing Bees〉授粉危機",
+      fact: "R2 解析全球蜂群崩壞症候群（CCD），三大元凶包含農藥（pesticides）、寄生蟎蟲（parasites）與棲地縮減（habitat loss）；由於全球逾七成農作依賴昆蟲授粉，蜜蜂銳減將直接衝擊糧食安全。",
+      hint: "英文島東南草坪處", localPos: { x: 10.2, z: 7.8 }
+    },
+
+    // 3. 英聽島（4 枚｜僅限英聽 4 大實戰主題）
+    {
+      id: "intel-lis-1", islandId: "listening", subject: "英聽", nodeId: "lis-1008", locationType: "island",
+      title: "Part 1 看圖辨義「5W 先行掃描法」",
+      fact: "播放音檔前先用 3 秒確認圖片中人物「正在做什麼動作、手拿何物、處於何種場域」，聽力句常以現在進行式（is pouring / are examining）或空間介系詞區分誘答選項。",
+      hint: "英聽島東北音樂台側翼", localPos: { x: 7.8, z: -7.4 }
+    },
+    {
+      id: "intel-lis-2", islandId: "listening", subject: "英聽", nodeId: "lis-1029", locationType: "island",
+      title: "簡短對話「語氣轉折暗號」",
+      fact: "聽到 but / however / actually / I’d love to, yet... 時，前一句通常是誘答鋪陳，真正回答與結論幾乎都在轉折詞之後，特別要留意委婉拒絕（I doubt it / Maybe next time）。",
+      hint: "英聽島西側草坪空地", localPos: { x: -11.2, z: -2.2 }
+    },
+    {
+      id: "intel-lis-3", islandId: "listening", subject: "英聽", nodeId: "lis-1105", locationType: "island",
+      title: "短文聽解「時間數字換算陷阱」",
+      fact: "遇見航班延誤、折扣折數（20% off vs. 20% discount vs. buy one get one free）或時刻推算（half an hour earlier / postponed until...），邊聽邊用指尖或鉛筆紀錄原始數字最快零失誤。",
+      hint: "英聽島西南海灣緣側", localPos: { x: -8.4, z: 9.8 }
+    },
+    {
+      id: "intel-lis-4", islandId: "listening", subject: "英聽", nodeId: "lis-1119", locationType: "island",
+      title: "主旨推論題「首尾句定錨術」",
+      fact: "11/19–11/20 新進度長篇廣播題：開頭常先點明發言場合（Welcome passengers / Attention shoppers / Next in tonight's forecast），結尾則點出聽眾後續必須採取的行動（must check in by...）。",
+      hint: "英聽島東南旋轉舞台旁", localPos: { x: 10.4, z: 7.6 }
+    },
+
+    // 4. 地理島（4 枚｜僅限地理 L5 / L6 / L7 / L8）
+    {
+      id: "intel-geo-1", islandId: "geography", subject: "地理", nodeId: "geo-l5", locationType: "island",
+      title: "內營力 vs. 外營力地表形塑法則",
+      fact: "L5 核心概念：內營力來自地球內部熱能（板塊運動、火山、地震），作用使地表『高低起伏變大』；外營力來自太陽輻射與重力（風化、侵蝕、搬運、堆積），傾向使地表『削高填低趨於平緩』。",
+      hint: "地理島東北火山丘側坡", localPos: { x: 8.2, z: -7.8 }
+    },
+    {
+      id: "intel-geo-2", islandId: "geography", subject: "地理", nodeId: "geo-l6", locationType: "island",
+      title: "曲流「凹岸侵蝕・凸岸堆積」必考口訣",
+      fact: "L6 河流與風成地形：曲流甩尾外側為『凹岸』（水流急、侵蝕強、水深適合建港但易坍塌），內側為『凸岸』（流速慢、泥沙堆積、形成沙洲與農地）；切穿截彎取直後遺留『牛軛湖』。",
+      hint: "地理島西側沙岩草坡", localPos: { x: -11.4, z: -1.8 }
+    },
+    {
+      id: "intel-geo-3", islandId: "geography", subject: "地理", nodeId: "geo-l7", locationType: "island",
+      title: "高度氣溫直減率 ＆ 背風焚風效應",
+      fact: "L7 氣候概述：對流層每上升 100 公尺氣溫平均下降 0.6°C（濕空氣凝結放熱降較慢約 0.5°C）；氣流翻越山脈至背風坡下沉增溫變乾，若原為濕暖海風則形成乾燥熾熱的『焚風（Foehn）』。",
+      hint: "地理島西南海岸沙丘邊", localPos: { x: -8.6, z: 10.2 }
+    },
+    {
+      id: "intel-geo-4", islandId: "geography", subject: "地理", nodeId: "geo-l8", locationType: "island",
+      title: "三胞環流與『行星風系季節移動』",
+      fact: "L8 必考作圖題：0°赤道低壓帶（ITCZ，對流雨終年多雨）、30°副熱帶高壓（乾燥少雨沙漠帶）、中緯西風帶；隨太陽直射點南北移，地中海型氣候呈現『夏受副高控制乾熱、冬受西風影響溫濕』！",
+      hint: "地理島東南觀星平台下方", localPos: { x: 10.6, z: 8.0 }
+    },
+
+    // 5. 公民社會島（4 枚｜僅限公民 L3a / L3b / L4a / L4b）
+    {
+      id: "intel-civ-1", islandId: "civics", subject: "公民社會", nodeId: "civ-l3a", locationType: "island",
+      title: "供需均衡移動 ＆ 總剩餘最大化",
+      fact: "L3 上集重點：價格高於均衡（P > P*）出現『超額供給』壓低價格；價格低於均衡出現『超額需求』推升價格。自由市場達均衡時，消費者剩餘（CS）與生產者剩餘（PS）之和『總剩餘』極大、無無謂損失。",
+      hint: "公民島東北平衡天平廣場旁", localPos: { x: 8.0, z: -7.6 }
+    },
+    {
+      id: "intel-civ-2", islandId: "civics", subject: "公民社會", nodeId: "civ-l3b", locationType: "island",
+      title: "有效價格上限（Price Ceiling）兩大條件",
+      fact: "L3 下集經典易錯題：『價格上限』必須設在市場均衡價格『之下』才會生效（若設在之上則無實質效果）；常見副作用包含供給短缺、大排長龍（排隊成本）、品質下降與黑市交易。",
+      hint: "公民島西側天平草坪", localPos: { x: -11.0, z: -1.8 }
+    },
+    {
+      id: "intel-civ-3", islandId: "civics", subject: "公民社會", nodeId: "civ-l4a", locationType: "island",
+      title: "外部成本「內部化」與皮古稅／補貼",
+      fact: "L4 上集：工廠排廢水（負外部性／外部成本）因未計入社會成本導致『產量過多』，政府可課徵『污染稅（皮古稅）』將外部成本內部化；植樹／疫苗屬外部效益，應予補貼修正生產不足。",
+      hint: "公民島西南草坡入口旁", localPos: { x: -8.2, z: 9.8 }
+    },
+    {
+      id: "intel-civ-4", islandId: "civics", subject: "公民社會", nodeId: "civ-l4b", locationType: "island",
+      title: "聯合行為（Cartel）vs. 公平交易法",
+      fact: "L4 下集：多家寡占競爭廠商私下合意調漲價格或瓜分市場（例如咖啡／超商同期聯手漲價），屬於違反《公平交易法》之『聯合行為（卡特爾）』，將損害消費者權益與市場效率。",
+      hint: "公民島東南海岸觀景點旁", localPos: { x: 10.2, z: 7.8 }
+    },
+
+    // 6. 歷史探究與實作島（4 枚｜僅限歷史 T4 / T5 / T6）
+    {
+      id: "intel-his-1", islandId: "history", subject: "歷史探究與實作", nodeId: "his-t4", locationType: "island",
+      title: "羅馬帝國宗教兩大里程碑：《米蘭詔書》vs. 國教化",
+      fact: "主題四基督教轉折年代必區分：西元 313 年君士坦丁大帝頒布《米蘭詔書》，僅使基督教獲得『合法寬容地位』（停止迫害）；直到西元 392 年狄奧多西一世才正式立基督教為羅馬『唯一國教』。",
+      hint: "歷史島東北教堂拱廊外", localPos: { x: 8.0, z: -7.4 }
+    },
+    {
+      id: "intel-his-2", islandId: "history", subject: "歷史探究與實作", nodeId: "his-t5", locationType: "island",
+      title: "口述歷史（Oral History）的史料價值與侷限",
+      fact: "主題五重點：口述訪談能保留官方文書遺漏的庶民日常與情感記憶；但受訪者可能因記憶衰退、事後合理化或立場偏頗而產生誤差，仍須與文字檔案、實物史料進行『交叉比對（三角檢證）』。",
+      hint: "歷史島西側樹影草地", localPos: { x: -11.0, z: -1.8 }
+    },
+    {
+      id: "intel-his-3", islandId: "history", subject: "歷史探究與實作", nodeId: "his-t6", locationType: "island",
+      title: "嚴謹區分「歷史事實」與「歷史解釋」",
+      fact: "主題六核心素養：『西元前 49 年凱撒率軍渡過盧比孔河』屬於可查證之『歷史事實』；『凱撒野心過大導致羅馬共和滅亡』則屬帶有因果歸因與價值判斷的『歷史解釋』，論述須有史料支撐。",
+      hint: "歷史島西南入口階地旁", localPos: { x: -8.2, z: 9.8 }
+    },
+    {
+      id: "intel-his-4", islandId: "history", subject: "歷史探究與實作", nodeId: "his-t6", locationType: "island",
+      title: "史學探究三步驟＆防範確認偏誤",
+      fact: "《歷史學探究》基本功三步驟為「隨手作筆記 → 動手寫摘要 → 下手找資料」；撰寫論證時必須刻意納入『反對或矛盾的史料』加以回應，才能避免只挑順眼證據的『確認偏誤（Confirmation Bias）』。",
+      hint: "歷史島東南金像台階側", localPos: { x: 10.2, z: 7.8 }
+    },
+
+    // 7. 寬廣海域漂流瓶（6 枚｜衝浪探索跨科彩蛋）
+    {
+      id: "intel-sea-1", islandId: "ocean", subject: "海域跨科彩蛋", nodeId: null, locationType: "ocean",
+      title: "🌊 海域漂流瓶 #1｜語文・馮諼 vs. 經濟誘因",
+      fact: "【國文 × 公民跨域】馮諼替孟嘗君「焚券市義」免除債務，從經濟學角度來看，其實是用短期利息成本交換難以買到的長期『信任資本與政治庇護外部效益』！",
+      hint: "中央廣場偏東北海域水面上", worldPos: { x: 21, z: -6 }
+    },
+    {
+      id: "intel-sea-2", islandId: "ocean", subject: "海域跨科彩蛋", nodeId: null, locationType: "ocean",
+      title: "🌊 海域漂流瓶 #2｜英文高頻連接詞「Despite vs. Although」",
+      fact: "【英文衝刺情報】段考文法極高頻陷阱：Although / Even though 後接『完整子句（主詞+動詞）』；Despite / In spite of 為介系詞，後面只能接『名詞或動名詞 (V-ing / the fact that...)』，千萬別把兩者混接！",
+      hint: "中央廣場偏西北海域水面上", worldPos: { x: -21, z: -6 }
+    },
+    {
+      id: "intel-sea-3", islandId: "ocean", subject: "海域跨科彩蛋", nodeId: null, locationType: "ocean",
+      title: "🌊 海域漂流瓶 #3｜洋流對氣溫與降水的大影響",
+      fact: "【地理海洋情報】暖流經過沿海使沿岸『增溫增濕』（例如北大西洋暖流讓歐洲高緯港冬不結冰）；涼流經過則『降溫減濕』易形成沿海多霧沙漠（如秘魯涼流與阿他加馬沙漠）！",
+      hint: "東南帆船錨地外側海灣中", worldPos: { x: 20, z: 22 }
+    },
+    {
+      id: "intel-sea-4", islandId: "ocean", subject: "海域跨科彩蛋", nodeId: null, locationType: "ocean",
+      title: "🌊 海域漂流瓶 #4｜市場失靈與共有資源悲劇",
+      fact: "【公民跨域情報】為何公海漁業容易過度捕撈？因為公海資源具備『無排他性』卻有『敵對性』，個別漁船只算自己私人捕獲利益而忽略族群枯竭的外部成本，需要總量配額或管制！",
+      hint: "西南海灣衝浪航道上", worldPos: { x: -20, z: 22 }
+    },
+    {
+      id: "intel-sea-5", islandId: "ocean", subject: "海域跨科彩蛋", nodeId: null, locationType: "ocean",
+      title: "🌊 海域漂流瓶 #5｜一手史料 vs. 二手史料快速判斷",
+      fact: "【歷史探究秘笈】當事人日記、碑刻、當年報紙或田野訪談錄音屬於『第一手史料（直接史料）』；後人寫的《戰國策》、教科書與學術論文屬於『第二手史料（轉手史料）』，寫作引用應註明來源。",
+      hint: "東北航線外側開闊海面上", worldPos: { x: 19, z: -26 }
+    },
+    {
+      id: "intel-sea-6", islandId: "ocean", subject: "海域跨科彩蛋", nodeId: null, locationType: "ocean",
+      title: "🌊 海域漂流瓶 #6｜考前最後一晚黃金定錨策略",
+      fact: "【六科總結】考前倒數不必再通篇死背：快速重看錯題筆記 ＋ 確認自己把 L6 英文課文不考的節省時間配給較弱科目 ＋ 睡滿 7 小時讓海馬迴完成記憶固化，自強不息祝你高分上榜！",
+      hint: "西北航線外側開闊海面上", worldPos: { x: -19, z: -26 }
+    }
+  ],
+
+  /**
+   * 情報收集與海域探險成就系統
+   */
+  intelAchievements: [
+    { id: "ach-first-intel", title: "🧭 初獲情報", desc: "首次拾取任 1 枚段考知識情報或海域漂流瓶", fishReward: 3, kind: "total", target: 1 },
+    { id: "ach-sea-explorer", title: "🏄 乘風破浪情報員", desc: "衝浪收集海面上全部 6 枚跨科漂流瓶情報", fishReward: 8, kind: "ocean", target: 6 },
+    { id: "ach-chinese-intel", title: "🏮 國文島全情報制霸", desc: "集齊國文島上全部 4 枚國文考點情報", fishReward: 5, kind: "island", islandId: "chinese", target: 4 },
+    { id: "ach-english-intel", title: "⛩️ 英文島全情報制霸", desc: "集齊英文島上全部 4 枚英文考點情報", fishReward: 5, kind: "island", islandId: "english", target: 4 },
+    { id: "ach-listening-intel", title: "🎧 英聽島全情報制霸", desc: "集齊英聽島上全部 4 枚英聽技巧情報", fishReward: 5, kind: "island", islandId: "listening", target: 4 },
+    { id: "ach-geography-intel", title: "🌋 地理島全情報制霸", desc: "集齊地理島上全部 4 枚地理系統情報", fishReward: 5, kind: "island", islandId: "geography", target: 4 },
+    { id: "ach-civics-intel", title: "⚖️ 公民島全情報制霸", desc: "集齊公民社會島上全部 4 枚公民經濟情報", fishReward: 5, kind: "island", islandId: "civics", target: 4 },
+    { id: "ach-history-intel", title: "🏛️ 歷史島全情報制霸", desc: "集齊歷史探究島上全部 4 枚史學探究情報", fishReward: 5, kind: "island", islandId: "history", target: 4 },
+    { id: "ach-intel-half", title: "✨ 博學探險家", desc: "累積收集達 15 枚島嶼／海域知識情報", fishReward: 10, kind: "total", target: 15 },
+    { id: "ach-intel-all", title: "👑 群島知識制霸王", desc: "收集齊全部 30 枚段考情報與海洋漂流瓶！", fishReward: 20, kind: "total", target: 30 }
+  ]
 };

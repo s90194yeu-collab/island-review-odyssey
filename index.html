@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@700;800;900&family=Zen+Maru+Gothic:wght@500;700;900&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="styles.css?v=7" />
+  <link rel="stylesheet" href="styles.css?v=9" />
 </head>
 <body tabindex="-1">
   <!-- 3D 群島畫布與懸浮島嶼標籤 -->
@@ -43,6 +43,10 @@
         <span>🐟</span>
         <strong id="fish-count-text">3</strong>
       </div>
+      <button type="button" class="stat-pill stat-pill-btn" id="hud-intel-btn" title="點擊查看收集到的島嶼與海域情報及成就">
+        <span>📜</span>
+        <strong id="intel-count-text">0/30</strong>
+      </button>
       <div class="stat-pill is-hidden-compact" title="校園生活「自強不息」走路遇點累積步數">
         <span>🚶</span>
         <strong id="walk-steps-text">0 步</strong>
@@ -132,6 +136,28 @@
         <button type="button" class="close-btn" id="close-schedule-btn">✕</button>
       </div>
       <div class="modal-body">
+        <div class="custom-review-bar">
+          <div class="custom-review-field">
+            <label for="custom-review-start">開始複習日</label>
+            <input type="date" id="custom-review-start" />
+          </div>
+          <div class="custom-review-field">
+            <label for="custom-exam-start">段考起始日</label>
+            <input type="date" id="custom-exam-start" />
+          </div>
+          <div class="custom-review-field">
+            <label for="custom-exam-end">段考結束日</label>
+            <input type="date" id="custom-exam-end" />
+          </div>
+          <div class="custom-review-actions">
+            <button type="button" class="primary-btn small-action-btn" id="apply-custom-review-btn">✅ 套用日期</button>
+            <button type="button" class="secondary-btn small-action-btn" id="reset-custom-review-btn">↺ 恢復預設</button>
+          </div>
+          <div class="custom-review-extra">
+            <input type="date" id="extra-review-date" aria-label="加入額外複習日" />
+            <button type="button" class="secondary-btn small-action-btn" id="add-extra-review-date-btn">+ 加一天複習日</button>
+          </div>
+        </div>
         <div class="budget-settings-bar">
           <span>🍅 <strong>排程節奏說明：</strong> 每顆番茄鐘 = 25 分鐘（點擊任務旁的 🍅 即可直接啟動該單元專屬計時！）</span>
           <button type="button" class="small-action-btn" id="reset-slots-btn" style="margin-left:auto;">↺ 重設所有每日時段為學校預設</button>
@@ -351,9 +377,9 @@
     })();
   </script>
 
-  <script src="data.js?v=7"></script>
-  <script src="panther-sprites.js?v=7"></script>
-  <script src="three-scene.js?v=7"></script>
-  <script src="app.js?v=7"></script>
+  <script src="data.js?v=9"></script>
+  <script src="panther-sprites.js?v=9"></script>
+  <script src="three-scene.js?v=9"></script>
+  <script src="app.js?v=9"></script>
 </body>
 </html>

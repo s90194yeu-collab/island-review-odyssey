@@ -2231,6 +2231,220 @@ textarea {
   }
 }
 
+/* ==================== 情報收集、成就徽章與自訂複習日列 ==================== */
+.stat-pill-btn {
+  cursor: pointer;
+  color: inherit;
+  transition: transform 0.12s ease, border-color 0.14s ease, background 0.14s ease;
+}
+
+.stat-pill-btn:hover {
+  transform: translateY(-1px);
+  border-color: var(--accent-sky);
+  background: #f0f9ff;
+}
+
+.custom-review-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px 12px;
+  padding: 12px 14px;
+  margin-bottom: 12px;
+  border-radius: 18px;
+  background: linear-gradient(145deg, #fffdf5, #eef8ff);
+  border: 2px solid #cbe6ff;
+}
+
+.custom-review-field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.custom-review-field label {
+  font-size: 11px;
+  font-weight: 800;
+  color: var(--text-muted);
+}
+
+.custom-review-field input[type="date"],
+.custom-review-extra input[type="date"] {
+  padding: 6px 9px;
+  border-radius: 10px;
+  border: 1.5px solid #bae6fd;
+  background: #ffffff;
+  color: var(--text-main);
+  font-size: 12.5px;
+  font-weight: 700;
+}
+
+.custom-review-actions,
+.custom-review-extra {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.custom-review-extra {
+  margin-left: auto;
+}
+
+.day-card.is-rest-day {
+  background: #f8fafc;
+  border-style: dashed;
+  border-color: #cbd5e1;
+  opacity: 0.78;
+}
+
+.day-rest-btn {
+  margin-left: auto;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid #cbd5e1;
+  background: #f1f5f9;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.day-rest-btn:hover {
+  border-color: var(--accent-sky);
+  color: var(--text-main);
+}
+
+.intel-summary-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 14px;
+  padding: 12px 16px;
+  border-radius: 18px;
+  background: linear-gradient(135deg, #f0f9ff, #fffbeb);
+  border: 2px solid #bae6fd;
+  margin-bottom: 14px;
+}
+
+.intel-progress-track {
+  width: 100%;
+  height: 10px;
+  border-radius: 999px;
+  background: #e2effa;
+  overflow: hidden;
+  margin-top: 6px;
+}
+
+.intel-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #38bdf8, #f59e0b);
+  border-radius: 999px;
+  transition: width 0.25s ease;
+}
+
+.achievement-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(185px, 1fr));
+  gap: 10px;
+  margin-bottom: 18px;
+}
+
+.achievement-card {
+  padding: 10px 12px;
+  border-radius: 16px;
+  background: #f8fafc;
+  border: 1.5px solid #e2e8f0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  opacity: 0.72;
+}
+
+.achievement-card.is-unlocked {
+  opacity: 1;
+  background: linear-gradient(145deg, #fffdf0, #fef3c7);
+  border-color: #fbbf24;
+  box-shadow: 0 4px 12px rgba(245, 158, 11, 0.16);
+}
+
+.intel-filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.intel-filter-pill {
+  padding: 5px 11px;
+  border-radius: 999px;
+  border: 1.5px solid #bae6fd;
+  background: #ffffff;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.intel-filter-pill.is-active {
+  background: #0ea5e9;
+  border-color: #0284c7;
+  color: #ffffff;
+}
+
+.intel-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: 10px;
+}
+
+.intel-card {
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: #ffffff;
+  border: 2px solid #bae6fd;
+  border-bottom-width: 3.5px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.intel-card.is-locked {
+  background: #f8fafc;
+  border-style: dashed;
+  border-color: #cbd5e1;
+}
+
+.intel-discovery-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.intel-discovery-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  align-self: flex-start;
+  padding: 4px 11px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 800;
+  background: #e0f2fe;
+  color: #0369a1;
+}
+
+.intel-fact-box {
+  padding: 14px 16px;
+  border-radius: 16px;
+  background: #fffbeb;
+  border: 2px solid #fde68a;
+  color: var(--text-main);
+  font-size: 14px;
+  line-height: 1.65;
+  font-weight: 600;
+}
+
 /* ==================== 專屬列印樣式 (@media print) ==================== */
 #print-report-root {
   display: none;

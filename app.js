@@ -37,7 +37,8 @@
   let activeEditCtx = null; // { islandId, nodeId }
   let activeEncounterCtx = null;
   let panelAllExpanded = false;
-  let activeLifeTab = "builder"; // builder | backpack
+  let activeLifeTab = "builder"; // builder | backpack | intel
+  let activeIntelFilter = "all";
   let activeAdminTab = "gallery"; // gallery | exam
   let adminGallerySex = "m";
   let adminSubjectIdx = 0;
@@ -47,10 +48,122 @@
   let pomodoroTargetNodeId = null;
   let lastDanceRewardAt = 0;
 
+  /* ==================== 自訂複習日與情報收集輔助 ==================== */
+  function makeDayEntryForDate(dateStr, examStartIso, isExtra = false) {
+    const dayNames = ["日", "一", "二", "三", "四", "五", "六"];
+    const dt = new Date(`${dateStr}T00:00:00+08:00`);
+    const exDt = new Date(`${examStartIso}T00:00:00+08:00`);
+    if (Number.isNaN(dt.getTime()) || Number.isNaN(exDt.getTime())) return null;
+    const dow = dt.getDay();
+    const mm = String(dt.getMonth() + 1).padStart(2, "0");
+    const dd = String(dt.getDate()).padStart(2, "0");
+    const offset = Math.round((exDt - dt) / 86400000);
+    const countdown = offset > 0 ? `倒數 ${offset} 天` : offset === 0 ? "段考當天" : "自訂複習";
+    if (dow === 0 || dow === 6) {
+      return {
+        date: dateStr,
+        label: `${mm}/${dd} (${dayNames[dow]})`,
+        phase: isExtra ? "✨ 自訂加排週末複習日" : offset <= 4 ? "☀️ 週末雙時段｜考前總檢" : "☀️ 週末雙時段｜衝刺深耕",
+        countdown,
+        isExam: false,
+        isWeekend: true,
+        isExtra,
+        dayType: "weekend",
+        slots: [
+          { id: "am", label: "☀️ 上午 09:00–12:00", mins: 180, defaultOn: true },
+          { id: "pm", label: "🌤️ 下午 14:00–17:00", mins: 180, defaultOn: true },
+          { id: "night", label: "🌙 晚間 19:30–21:00", mins: 90, defaultOn: false }
+        ]
+      };
+    }
+    if (dow === 1 || dow === 2 || dow === 4) {
+      return {
+        date: dateStr,
+        label: `${mm}/${dd} (${dayNames[dow]})`,
+        phase: isExtra ? "✨ 自訂加排平日晚自習" : offset === 1 ? "🏫 晚自習考前定錨（早點休息）" : "🏫 晚自習日｜夜間累積",
+        countdown,
+        isExam: false,
+        isWeekend: false,
+        isExtra,
+        dayType: "mon_tue_thu",
+        slots: [
+          { id: "study", label: "🏫 晚自習 18:40–20:25", mins: 105, defaultOn: true },
+          { id: "home", label: "🌙 返家 21:00–21:50", mins: 50, defaultOn: false }
+        ]
+      };
+    }
+    return {
+      date: dateStr,
+      label: `${mm}/${dd} (${dayNames[dow]})`,
+      phase: isExtra ? "✨ 自訂加排彈性複習日" : "🎧 週三/五彈性｜補習/自主",
+      countdown,
+      isExam: false,
+      isWeekend: false,
+      isExtra,
+      dayType: "wed_fri",
+      slots: [
+        { id: "flex", label: "🌙 夜間彈性 20:00–21:00", mins: 60, defaultOn: true },
+        { id: "extra", label: "✨ 空檔加碼 +30m", mins: 30, defaultOn: false }
+      ]
+    };
+  }
+
+  function getActiveCalendarDays(cfgOverride) {
+    const cfg = cfgOverride !== undefined ? cfgOverride : typeof state !== "undefined" && state ? state.customReviewConfig : null;
+    if (!cfg) return DATA.calendarDays;
+
+    const defaultExamStart = (DATA.meta && DATA.meta.examDates && DATA.meta.examDates[0]) || "2026-12-01";
+    const defaultExamEnd = (DATA.meta && DATA.meta.examDates && DATA.meta.examDates[DATA.meta.examDates.length - 1]) || defaultExamStart;
+    const defaultStart = (DATA.meta && DATA.meta.startDate) || (DATA.calendarDays[0] && DATA.calendarDays[0].date) || "2026-11-17";
+
+    const examStart = cfg.examStartDate || defaultExamStart;
+    const examEnd = cfg.examEndDate && cfg.examEndDate >= examStart ? cfg.examEndDate : cfg.examStartDate ? examStart : defaultExamEnd;
+    const start = cfg.startDate || defaultStart;
+
+    let baseDays;
+    if (!cfg.startDate && !cfg.examStartDate && !cfg.examEndDate) {
+      baseDays = DATA.calendarDays.map((d) => ({ ...d, slots: (d.slots || []).map((s) => ({ ...s })) }));
+    } else {
+      const sDt = new Date(`${start}T00:00:00+08:00`);
+      const eDt = new Date(`${examStart}T00:00:00+08:00`);
+      const diffDays = Number.isNaN(sDt.getTime()) || Number.isNaN(eDt.getTime())
+        ? 14
+        : Math.max(3, Math.min(45, Math.round((eDt - sDt) / 86400000)));
+      baseDays = generateReviewCalendarDays(examStart, examEnd, (DATA.meta && DATA.meta.examName) || "第二次段考", diffDays);
+    }
+
+    const byDate = new Map();
+    baseDays.forEach((d) => byDate.set(d.date, { ...d }));
+
+    (cfg.extraDates || []).forEach((dStr) => {
+      if (!dStr || byDate.has(dStr)) return;
+      const extraEntry = makeDayEntryForDate(dStr, examStart, true);
+      if (extraEntry) byDate.set(dStr, extraEntry);
+    });
+
+    const excluded = new Set(cfg.excludedDates || []);
+    return Array.from(byDate.values())
+      .sort((a, b) => a.date.localeCompare(b.date))
+      .map((d) => ({
+        ...d,
+        isRestDay: !d.isExam && excluded.has(d.date)
+      }));
+  }
+
+  function getActiveExamDates() {
+    const cfg = typeof state !== "undefined" && state ? state.customReviewConfig : null;
+    if (cfg && cfg.examStartDate) {
+      return cfg.examEndDate && cfg.examEndDate > cfg.examStartDate
+        ? [cfg.examStartDate, cfg.examEndDate]
+        : [cfg.examStartDate];
+    }
+    return (DATA.meta && Array.isArray(DATA.meta.examDates) && DATA.meta.examDates) || ["2026-12-01", "2026-12-02"];
+  }
+
   /* ==================== 狀態初始化與存取 ==================== */
-  function createDefaultDaySlots() {
+  function createDefaultDaySlots(cfgOverride = null) {
     const daySlots = {};
-    DATA.calendarDays.forEach((d) => {
+    getActiveCalendarDays(cfgOverride).forEach((d) => {
       const slotMap = {};
       (d.slots || []).forEach((s) => {
         slotMap[s.id] = Boolean(s.defaultOn);
@@ -80,7 +193,7 @@
 
     const schedule = {};
     const customDayMins = {};
-    DATA.calendarDays.forEach((d) => {
+    getActiveCalendarDays(null).forEach((d) => {
       schedule[d.date] = Array.isArray(DATA.defaultSchedule[d.date])
         ? [...DATA.defaultSchedule[d.date]]
         : [];
@@ -103,12 +216,15 @@
       nodeProgress,
       nodePomodoros,
       schedule,
-      daySlots: createDefaultDaySlots(),
+      daySlots: createDefaultDaySlots(null),
       customDayMins,
+      customReviewConfig: null,
       dailyDone: {},
       checkinDates: [],
       ownedBuildings: [],
       backpack: [],
+      collectedIntel: [],
+      unlockedAchievements: [],
       pantherSex: "m",
       gasUrl: (DATA.meta && DATA.meta.defaultGasUrl) || "",
       catStats: {
@@ -147,17 +263,34 @@
         });
       }
       if (parsed.nodePomodoros) base.nodePomodoros = { ...base.nodePomodoros, ...parsed.nodePomodoros };
+      if (parsed.customReviewConfig && typeof parsed.customReviewConfig === "object") {
+        base.customReviewConfig = {
+          startDate: parsed.customReviewConfig.startDate || "",
+          examStartDate: parsed.customReviewConfig.examStartDate || "",
+          examEndDate: parsed.customReviewConfig.examEndDate || "",
+          excludedDates: Array.isArray(parsed.customReviewConfig.excludedDates) ? [...new Set(parsed.customReviewConfig.excludedDates)] : [],
+          extraDates: Array.isArray(parsed.customReviewConfig.extraDates) ? [...new Set(parsed.customReviewConfig.extraDates)] : []
+        };
+      }
+      const activeDays = getActiveCalendarDays(base.customReviewConfig);
+      base.daySlots = { ...createDefaultDaySlots(base.customReviewConfig), ...base.daySlots };
       if (parsed.schedule) {
-        Object.keys(base.schedule).forEach((date) => {
+        activeDays.forEach((d) => {
+          const date = d.date;
+          if (!Array.isArray(base.schedule[date])) {
+            base.schedule[date] = Array.isArray(DATA.defaultSchedule[date]) ? [...DATA.defaultSchedule[date]] : [];
+          }
           if (Array.isArray(parsed.schedule[date])) {
             base.schedule[date] = parsed.schedule[date].filter((id) => Boolean(findNode(id)));
           }
+          if (!(date in base.customDayMins)) base.customDayMins[date] = null;
         });
       }
       if (parsed.daySlots) {
-        Object.keys(base.daySlots).forEach((date) => {
+        activeDays.forEach((d) => {
+          const date = d.date;
           if (parsed.daySlots[date]) {
-            base.daySlots[date] = { ...base.daySlots[date], ...parsed.daySlots[date] };
+            base.daySlots[date] = { ...(base.daySlots[date] || {}), ...parsed.daySlots[date] };
           }
         });
       }
@@ -166,6 +299,13 @@
       if (Array.isArray(parsed.checkinDates)) base.checkinDates = [...new Set(parsed.checkinDates)];
       if (Array.isArray(parsed.ownedBuildings)) base.ownedBuildings = [...new Set(parsed.ownedBuildings)];
       if (Array.isArray(parsed.backpack)) base.backpack = [...new Set(parsed.backpack)];
+      if (Array.isArray(parsed.collectedIntel)) {
+        const validIntel = new Set((DATA.intelItems || []).map((it) => it.id));
+        base.collectedIntel = [...new Set(parsed.collectedIntel)].filter((id) => validIntel.has(id));
+      }
+      if (Array.isArray(parsed.unlockedAchievements)) {
+        base.unlockedAchievements = [...new Set(parsed.unlockedAchievements)];
+      }
       if (parsed.pantherSex === "f" || parsed.pantherSex === "m") base.pantherSex = parsed.pantherSex;
       if (typeof parsed.gasUrl === "string" && parsed.gasUrl.trim()) {
         base.gasUrl = parsed.gasUrl.trim();
@@ -360,7 +500,7 @@
 
   /* ==================== 頂部狀態列與快速傳送列 ==================== */
   function formatExamMmDdRange() {
-    const dates = (DATA.meta && Array.isArray(DATA.meta.examDates) && DATA.meta.examDates) || ["2026-12-01", "2026-12-02"];
+    const dates = getActiveExamDates();
     const sorted = [...dates].sort();
     const fmt = (iso) => {
       const parts = String(iso).split("-");
@@ -374,7 +514,7 @@
   function updateCountdown() {
     const el = document.getElementById("exam-countdown-text");
     const subEl = document.querySelector(".brand-sub");
-    const dates = (DATA.meta && Array.isArray(DATA.meta.examDates) && DATA.meta.examDates) || ["2026-12-01", "2026-12-02"];
+    const dates = getActiveExamDates();
     const sorted = [...dates].sort();
     const startIso = sorted[0];
     const endIso = sorted[sorted.length - 1] || startIso;
@@ -489,6 +629,7 @@
     const barEl = document.getElementById("global-progress-fill");
     const flagsEl = document.getElementById("global-flags-text");
     const fishEl = document.getElementById("fish-count-text");
+    const intelEl = document.getElementById("intel-count-text");
     const stepsEl = document.getElementById("walk-steps-text");
     const checkinBtn = document.getElementById("nav-checkin-btn");
 
@@ -496,6 +637,7 @@
     if (barEl) barEl.style.width = `${stats.overallPercent}%`;
     if (flagsEl) flagsEl.textContent = `${stats.conqueredNodes}/${stats.totalNodes} 🏅`;
     if (fishEl) fishEl.textContent = String(stats.availableFish);
+    if (intelEl) intelEl.textContent = `${(state.collectedIntel || []).length}/${(DATA.intelItems || []).length}`;
     if (stepsEl) stepsEl.textContent = `${(state.catStats && state.catStats.walkSteps) || 0} 步`;
 
     if (checkinBtn) {
@@ -511,6 +653,7 @@
     if (sceneManager) {
       sceneManager.refreshAllStates();
       sceneManager.syncDecorations(state.ownedBuildings || []);
+      sceneManager.syncCollectedIntel(state.collectedIntel || []);
     }
   }
 
@@ -1240,7 +1383,109 @@
     activeEncounterCtx = null;
   }
 
-  /* ==================== 14 天彈性時段＆番茄鐘排程表 ==================== */
+  function collectIntel(intelId) {
+    const item = (DATA.intelItems || []).find((it) => it.id === intelId);
+    if (!item) return;
+    if (sceneManager) sceneManager.setPantherInput(0, 0, false);
+
+    if (!Array.isArray(state.collectedIntel)) state.collectedIntel = [];
+    if (!Array.isArray(state.unlockedAchievements)) state.unlockedAchievements = [];
+    const isNew = !state.collectedIntel.includes(intelId);
+    const newlyUnlocked = [];
+
+    if (isNew) {
+      state.collectedIntel.push(intelId);
+      state.catStats.bonusFish = (state.catStats.bonusFish || 0) + 2;
+
+      const collectedSet = new Set(state.collectedIntel);
+      const totalCollected = state.collectedIntel.length;
+      const oceanCollected = (DATA.intelItems || []).filter(
+        (x) => x.locationType === "ocean" && collectedSet.has(x.id)
+      ).length;
+
+      (DATA.intelAchievements || []).forEach((ach) => {
+        if (state.unlockedAchievements.includes(ach.id)) return;
+        let hit = false;
+        if (ach.kind === "total") hit = totalCollected >= ach.target;
+        else if (ach.kind === "ocean") hit = oceanCollected >= ach.target;
+        else if (ach.kind === "island") {
+          const islCnt = (DATA.intelItems || []).filter(
+            (x) => x.islandId === ach.islandId && collectedSet.has(x.id)
+          ).length;
+          hit = islCnt >= ach.target;
+        }
+        if (hit) {
+          state.unlockedAchievements.push(ach.id);
+          state.catStats.bonusFish = (state.catStats.bonusFish || 0) + (ach.fishReward || 0);
+          newlyUnlocked.push(ach);
+        }
+      });
+
+      saveState();
+      renderGlobalHUD();
+      if (document.getElementById("life-modal")?.classList.contains("is-open")) {
+        renderLifeContent();
+      }
+      if (sceneManager) {
+        sceneManager.triggerCatCelebration(item.islandId === "ocean" ? "chinese" : item.islandId);
+        sceneManager._setPantherEmote(`📜 收集情報：${item.title} (+2🐟)`, 2.4);
+      }
+    }
+
+    activeEncounterCtx = null;
+    const isOcean = item.locationType === "ocean";
+    const islObj = !isOcean ? findIsland(item.islandId) : null;
+    const locLabel = isOcean ? "🌊 海域漂流瓶（跨科彩蛋）" : `🏝️ ${islObj ? islObj.name : item.subject}・專屬考點`;
+
+    document.getElementById("encounter-modal-title").textContent =
+      `📜 ${isNew ? "發現新情報！" : "情報圖鑑回顧"}｜${item.subject}`;
+
+    const unlockHtml = newlyUnlocked
+      .map(
+        (ach) => `
+          <div style="padding:10px 14px;border-radius:14px;background:linear-gradient(135deg,#fef3c7,#fde68a);border:2px solid #f59e0b;color:#78350f;font-weight:800;font-size:13px;">
+            🏆 解鎖成就【${escapeHtml(ach.title)}】！${escapeHtml(ach.desc)}（獎勵 +${ach.fishReward} 🐟）
+          </div>
+        `
+      )
+      .join("");
+
+    const body = document.getElementById("encounter-modal-body");
+    body.innerHTML = `
+      <div class="intel-discovery-card">
+        <div class="intel-discovery-badge">${escapeHtml(locLabel)}</div>
+        <h3 style="font-size:17px;font-weight:900;color:var(--text-main);">${escapeHtml(item.title)}</h3>
+        <div class="intel-fact-box">${escapeHtml(item.fact)}</div>
+        <div style="font-size:12.5px;color:var(--text-muted);display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+          <span>📍 探索座標說明：${escapeHtml(item.hint)}</span>
+          <strong style="color:var(--accent-gold);">${isNew ? "🎁 首次收集獎勵：+2 🐟 小魚乾" : "✅ 已收入情報成就圖鑑"}</strong>
+        </div>
+        ${unlockHtml}
+        <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:4px;">
+          <button type="button" class="primary-btn" id="intel-open-codex-btn">📜 查看情報＆成就圖鑑 (${(state.collectedIntel || []).length}/${(DATA.intelItems || []).length})</button>
+          ${
+            item.nodeId
+              ? `<button type="button" class="secondary-btn" id="intel-jump-node-btn">🎯 前往對應單元節點</button>`
+              : ""
+          }
+          <button type="button" class="secondary-btn" id="intel-continue-btn" style="margin-left:auto;">繼續探索</button>
+        </div>
+      </div>
+    `;
+
+    document.getElementById("intel-open-codex-btn")?.addEventListener("click", () => {
+      closeEncounterModal();
+      openLifeModal("intel");
+    });
+    document.getElementById("intel-jump-node-btn")?.addEventListener("click", () => {
+      closeEncounterModal();
+      openIsland(item.islandId, item.nodeId);
+    });
+    document.getElementById("intel-continue-btn")?.addEventListener("click", closeEncounterModal);
+    document.getElementById("encounter-modal").classList.add("is-open");
+  }
+
+  /* ==================== 彈性時段＆番茄鐘排程表 ==================== */
   function openScheduleModal() {
     renderScheduleGrid();
     document.getElementById("schedule-modal").classList.add("is-open");
@@ -1265,6 +1510,25 @@
     const grid = document.getElementById("schedule-grid");
     if (!grid) return;
 
+    const days = getActiveCalendarDays();
+    const cfg = state.customReviewConfig || {};
+    const defaultStart = (DATA.meta && DATA.meta.startDate) || (DATA.calendarDays[0] && DATA.calendarDays[0].date) || "2026-11-17";
+    const defaultExStart = (DATA.meta && DATA.meta.examDates && DATA.meta.examDates[0]) || "2026-12-01";
+    const defaultExEnd = (DATA.meta && DATA.meta.examDates && DATA.meta.examDates[DATA.meta.examDates.length - 1]) || defaultExStart;
+
+    const inpStart = document.getElementById("custom-review-start");
+    const inpExStart = document.getElementById("custom-exam-start");
+    const inpExEnd = document.getElementById("custom-exam-end");
+    if (inpStart) inpStart.value = cfg.startDate || defaultStart;
+    if (inpExStart) inpExStart.value = cfg.examStartDate || defaultExStart;
+    if (inpExEnd) inpExEnd.value = cfg.examEndDate || defaultExEnd;
+
+    const activeReviewCount = days.filter((d) => !d.isExam && !d.isRestDay).length;
+    const titleEl = document.getElementById("schedule-modal-title");
+    if (titleEl) {
+      titleEl.textContent = `📅 考前 ${activeReviewCount} 天彈性時段排程表（支援自訂複習日＆休息日）`;
+    }
+
     const allNodeOptions = DATA.islands
       .map((isl) =>
         isl.nodes
@@ -1275,11 +1539,12 @@
 
     const todayStr = getTodayDateStr();
 
-    grid.innerHTML = DATA.calendarDays
+    grid.innerHTML = days
       .map((day) => {
+        if (!Array.isArray(state.schedule[day.date])) state.schedule[day.date] = [];
         const taskIds = state.schedule[day.date] || [];
         const isToday = day.date === todayStr;
-        const budget = getDayBudgetMins(day);
+        const budget = day.isRestDay ? 0 : getDayBudgetMins(day);
         const slotsMap = (state.daySlots && state.daySlots[day.date]) || {};
         const customVal = state.customDayMins && state.customDayMins[day.date];
 
@@ -1294,7 +1559,11 @@
         const tasksHtml =
           taskIds.length === 0
             ? `<div style="font-size:11.5px;color:var(--text-dim);padding:6px 0;">${
-                day.isExam ? "🎯 保持作息與考前重點速覽，祝段考順利！" : "尚未安排據點（可由下方加入）"
+                day.isExam
+                  ? "🎯 保持作息與考前重點速覽，祝段考順利！"
+                  : day.isRestDay
+                    ? "🛌 本日設為休息／彈性緩衝日（智慧排程將自動略過）"
+                    : "尚未安排據點（可由下方加入）"
               }</div>`
             : taskIds
                 .map((nid, idx) => {
@@ -1324,14 +1593,24 @@
         const overloadWarn = totalMins > budget ? `<span style="color:#fca5a5;font-weight:700;">⚠️ 超載</span>` : "";
 
         return `
-          <div class="day-card ${isToday ? "is-today" : ""} ${day.isExam ? "is-exam" : ""}">
+          <div class="day-card ${isToday ? "is-today" : ""} ${day.isExam ? "is-exam" : ""} ${day.isRestDay ? "is-rest-day" : ""}">
             <div class="day-card-head">
               <span class="day-date">${day.label}</span>
+              ${
+                day.isExam
+                  ? ""
+                  : `<button type="button" class="day-rest-btn" data-toggle-rest-day="${day.date}" title="切換為休息日或複習日">${day.isRestDay ? "📖 設複習日" : "🛌 改休息"}</button>`
+              }
+              ${
+                day.isExtra
+                  ? `<button type="button" class="chip-remove" data-remove-extra-day="${day.date}" title="移除此額外複習日">✕</button>`
+                  : ""
+              }
               <span class="day-countdown">${day.countdown}</span>
             </div>
             <div class="day-phase">${day.phase}</div>
             ${
-              day.isExam
+              day.isExam || day.isRestDay
                 ? ""
                 : `<div class="slot-chips-wrap">${slotChipsHtml}</div>
                    <div class="custom-mins-row">
@@ -1351,7 +1630,7 @@
             }
             <div class="day-tasks">${tasksHtml}</div>
             ${
-              day.isExam
+              day.isExam || day.isRestDay
                 ? ""
                 : `<div class="day-add-row">
                     <select class="day-add-select" data-select-day="${day.date}">
@@ -1365,6 +1644,32 @@
         `;
       })
       .join("");
+
+    grid.querySelectorAll("[data-toggle-rest-day]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const dStr = btn.getAttribute("data-toggle-rest-day");
+        if (!state.customReviewConfig) {
+          state.customReviewConfig = { startDate: "", examStartDate: "", examEndDate: "", excludedDates: [], extraDates: [] };
+        }
+        const excl = new Set(state.customReviewConfig.excludedDates || []);
+        if (excl.has(dStr)) excl.delete(dStr);
+        else excl.add(dStr);
+        state.customReviewConfig.excludedDates = Array.from(excl);
+        saveState();
+        renderScheduleGrid();
+      });
+    });
+
+    grid.querySelectorAll("[data-remove-extra-day]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const dStr = btn.getAttribute("data-remove-extra-day");
+        if (state.customReviewConfig && Array.isArray(state.customReviewConfig.extraDates)) {
+          state.customReviewConfig.extraDates = state.customReviewConfig.extraDates.filter((x) => x !== dStr);
+        }
+        saveState();
+        renderScheduleGrid();
+      });
+    });
 
     grid.querySelectorAll("[data-toggle-slot]").forEach((btn) => {
       btn.addEventListener("click", () => {
@@ -1432,26 +1737,32 @@
   }
 
   function autoGenerateSchedule(mode) {
-    const reviewDays = DATA.calendarDays.filter((d) => !d.isExam);
+    const allDays = getActiveCalendarDays();
+    const reviewDays = allDays.filter((d) => !d.isExam && !d.isRestDay);
     const newSchedule = {};
     const usedMins = {};
-    reviewDays.forEach((d) => {
+    allDays.forEach((d) => {
       newSchedule[d.date] = [];
       usedMins[d.date] = 0;
     });
 
     if (mode === "default") {
-      DATA.calendarDays.forEach((d) => {
-        newSchedule[d.date] = Array.isArray(DATA.defaultSchedule[d.date])
+      allDays.forEach((d) => {
+        newSchedule[d.date] = !d.isRestDay && Array.isArray(DATA.defaultSchedule[d.date])
           ? [...DATA.defaultSchedule[d.date]]
           : [];
       });
-      DATA.calendarDays.forEach((d) => {
+      allDays.forEach((d) => {
         state.schedule[d.date] = newSchedule[d.date] || [];
       });
       saveState();
       renderScheduleGrid();
       showToast("↺ 已恢復夜間減壓預設建議排程！");
+      return;
+    }
+
+    if (reviewDays.length === 0) {
+      showToast("⚠️ 目前沒有啟用的複習日，請先取消部分休息日再排程！");
       return;
     }
 
@@ -1469,19 +1780,19 @@
       });
     });
 
-    // Helper: fit nodes into days respecting weekday night budget vs weekend budget (leaving 11/30 light!)
+    // Helper: fit nodes into active review days while keeping the final eve day slightly lighter
+    const lastDayDate = reviewDays[reviewDays.length - 1].date;
     const placeIntoBudget = (items, allowEndDays = true) => {
-      const targetDays = allowEndDays ? reviewDays : reviewDays.slice(0, reviewDays.length - 1);
+      const targetDays = allowEndDays || reviewDays.length <= 1 ? reviewDays : reviewDays.slice(0, reviewDays.length - 1);
       items.forEach((item) => {
         let bestDay = null;
         let bestScore = Infinity;
         for (const d of targetDays) {
           const cap = getDayBudgetMins(d);
           const cur = usedMins[d.date];
-          // Prefer days that can hold item.mins without exceeding cap, and prefer weekdays for light items & weekends for heavy loads
           const overflow = cur + item.mins > cap ? (cur + item.mins - cap) * 10 : 0;
           const loadRatio = (cur + item.mins) / Math.max(cap, 1);
-          const lastDayPenalty = d.date === "2026-11-30" ? 0.4 : 0;
+          const lastDayPenalty = d.date === lastDayDate ? 0.4 : 0;
           const score = overflow + loadRatio + lastDayPenalty;
           if (score < bestScore) {
             bestScore = score;
@@ -1500,7 +1811,6 @@
       const pending = allNodes.filter((n) => !n.conquered || n.weakScore <= 1);
       placeIntoBudget(pending.length > 0 ? pending : allNodes, true);
     } else {
-      // Interleave heavy and light nodes so weekday nights get 1 heavy + 1 light
       const heavy = allNodes.filter((n) => n.mins >= 45);
       const light = allNodes.filter((n) => n.mins < 45);
       const interleaved = [];
@@ -1511,10 +1821,10 @@
       }
       placeIntoBudget(interleaved, false);
 
-      // Add final review items into weekend 11/28-29 & light lock-in on 11/30
       const reviewPool = allNodes.filter((n) => n.weakScore < 3).slice(0, 6);
+      const tailSpan = Math.min(3, reviewDays.length);
       reviewPool.forEach((n, idx) => {
-        const d = reviewDays[Math.min(11 + (idx % 3), reviewDays.length - 1)];
+        const d = reviewDays[Math.max(0, reviewDays.length - tailSpan + (idx % tailSpan))];
         if (!newSchedule[d.date].includes(n.id) && usedMins[d.date] + n.mins <= getDayBudgetMins(d)) {
           newSchedule[d.date].push(n.id);
           usedMins[d.date] += n.mins;
@@ -1522,12 +1832,12 @@
       });
     }
 
-    DATA.calendarDays.forEach((d) => {
+    allDays.forEach((d) => {
       state.schedule[d.date] = newSchedule[d.date] || [];
     });
     saveState();
     renderScheduleGrid();
-    showToast("✨ 已更新 14 天智慧複習排程！");
+    showToast(`✨ 已完成 ${reviewDays.length} 天智慧複習排程！`);
   }
 
   /* ==================== 自強不息・每日簽到與連勝徽章 ==================== */
@@ -1583,19 +1893,23 @@
       })
       .join("");
 
-    const stampsHtml = DATA.calendarDays
+    const activeDays = getActiveCalendarDays();
+    const stampsHtml = activeDays
       .map((d) => {
         const stamped = signedDates.has(d.date);
         const isToday = d.date === today;
         return `
           <div class="checkin-stamp ${stamped ? "is-stamped" : ""}" style="${isToday ? "border-color:#38bdf8;" : ""}">
             <div style="font-weight:700;">${d.label}</div>
-            <div style="font-size:20px;margin:4px 0;">${stamped ? "🐾" : d.isExam ? "⚔️" : "⬜"}</div>
-            <div style="font-size:10.5px;color:var(--text-muted);">${stamped ? "已蓋章" : isToday ? "今日待簽" : d.isExam ? "段考日" : "未簽到"}</div>
+            <div style="font-size:20px;margin:4px 0;">${stamped ? "🐾" : d.isExam ? "⚔️" : d.isRestDay ? "🛌" : "⬜"}</div>
+            <div style="font-size:10.5px;color:var(--text-muted);">${stamped ? "已蓋章" : isToday ? "今日待簽" : d.isExam ? "段考日" : d.isRestDay ? "休息日" : "未簽到"}</div>
           </div>
         `;
       })
       .join("");
+
+    const rangeStartLbl = activeDays[0] ? activeDays[0].label.split(" ")[0] : "";
+    const rangeEndLbl = activeDays.length ? activeDays[activeDays.length - 1].label.split(" ")[0] : "";
 
     body.innerHTML = `
       <div style="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px;margin-bottom:16px;padding:14px;border-radius:12px;background:rgba(255,211,42,0.1);border:1px solid rgba(255,211,42,0.35);">
@@ -1609,7 +1923,7 @@
       </div>
       <h3 style="font-size:14px;margin-bottom:8px;">🏅 自強不息榮譽徽章</h3>
       <div class="streak-badge-row">${badgesHtml}</div>
-      <h3 style="font-size:14px;margin-bottom:8px;">📅 11/17～12/02 登島簽到印章卡</h3>
+      <h3 style="font-size:14px;margin-bottom:8px;">📅 ${rangeStartLbl}～${rangeEndLbl} 登島簽到印章卡</h3>
       <div class="checkin-calendar-grid">${stampsHtml}</div>
     `;
 
@@ -1670,10 +1984,13 @@
     if (!body) return;
     const stats = getGlobalStats();
     const ownedSet = new Set(state.ownedBuildings || []);
+    const collectedIntelSet = new Set(state.collectedIntel || []);
+    const totalIntel = (DATA.intelItems || []).length;
 
     const tabsHtml = `
       <div class="subtabs-row">
         <button type="button" class="nav-btn ${activeLifeTab === "builder" ? "is-active" : ""}" id="tab-life-builder">🏕️ 群島建設圖鑑 (${ownedSet.size}/${(DATA.buildingCatalog || []).length})</button>
+        <button type="button" class="nav-btn ${activeLifeTab === "intel" ? "is-active" : ""}" id="tab-life-intel">📜 情報＆成就 (${collectedIntelSet.size}/${totalIntel})</button>
         <button type="button" class="nav-btn ${activeLifeTab === "backpack" ? "is-active" : ""}" id="tab-life-backpack">🎒 隨身行囊 (${(state.backpack || []).length}) ＆ 跨島搜尋</button>
         <span style="margin-left:auto;align-self:center;font-size:13px;color:var(--accent-gold);font-weight:700;">🐟 可用小魚乾：${stats.availableFish}</span>
       </div>
@@ -1702,6 +2019,87 @@
         })
         .join("");
       contentHtml = `<div class="builder-grid">${cardsHtml}</div>`;
+    } else if (activeLifeTab === "intel") {
+      const unlockedSet = new Set(state.unlockedAchievements || []);
+      const allAch = DATA.intelAchievements || [];
+      const intelPct = totalIntel > 0 ? Math.round((collectedIntelSet.size / totalIntel) * 100) : 0;
+
+      const achHtml = allAch
+        .map((ach) => {
+          const unlocked = unlockedSet.has(ach.id);
+          return `
+            <div class="achievement-card ${unlocked ? "is-unlocked" : ""}">
+              <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;">
+                <strong style="font-size:13px;">${escapeHtml(ach.title)}</strong>
+                <span style="font-size:11px;font-weight:800;color:${unlocked ? "#b45309" : "var(--text-dim)"};">+${ach.fishReward}🐟</span>
+              </div>
+              <div style="font-size:11.5px;color:var(--text-muted);line-height:1.4;">${escapeHtml(ach.desc)}</div>
+              <div style="font-size:11px;font-weight:800;color:${unlocked ? "#059669" : "var(--text-dim)"};margin-top:2px;">
+                ${unlocked ? "🏆 已解鎖" : "🔒 待達成"}
+              </div>
+            </div>
+          `;
+        })
+        .join("");
+
+      const filterDefs = [
+        { id: "all", label: `🌐 全部 (${collectedIntelSet.size}/${totalIntel})` },
+        ...DATA.islands.map((isl) => {
+          const subItems = (DATA.intelItems || []).filter((x) => x.islandId === isl.id);
+          const got = subItems.filter((x) => collectedIntelSet.has(x.id)).length;
+          return { id: isl.id, label: `${isl.name} (${got}/${subItems.length})` };
+        }),
+        {
+          id: "ocean",
+          label: `🌊 海域漂流瓶 (${(DATA.intelItems || []).filter((x) => x.locationType === "ocean" && collectedIntelSet.has(x.id)).length}/${(DATA.intelItems || []).filter((x) => x.locationType === "ocean").length})`
+        }
+      ];
+
+      const filterPillsHtml = filterDefs
+        .map(
+          (f) =>
+            `<button type="button" class="intel-filter-pill ${activeIntelFilter === f.id ? "is-active" : ""}" data-intel-filter="${f.id}">${escapeHtml(f.label)}</button>`
+        )
+        .join("");
+
+      const filteredIntel = (DATA.intelItems || []).filter((it) => {
+        if (activeIntelFilter === "all") return true;
+        if (activeIntelFilter === "ocean") return it.locationType === "ocean";
+        return it.islandId === activeIntelFilter;
+      });
+
+      const intelCardsHtml = filteredIntel
+        .map((it) => {
+          const got = collectedIntelSet.has(it.id);
+          return `
+            <div class="intel-card ${got ? "" : "is-locked"}">
+              <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;">
+                <span class="intel-discovery-badge">${escapeHtml(it.subject)}</span>
+                <span style="font-size:11px;font-weight:800;color:${got ? "#059669" : "var(--text-dim)"};">${got ? "✅ 已收集 (+2🐟)" : "🔒 未發現"}</span>
+              </div>
+              <div style="font-size:14px;font-weight:900;">${got ? escapeHtml(it.title) : "？？？待收集的知識情報"}</div>
+              <div style="font-size:12px;color:${got ? "var(--text-main)" : "var(--text-muted)"};line-height:1.5;">
+                ${got ? escapeHtml(it.fact) : `📍 探索線索：前往「${escapeHtml(it.hint)}」附近拾取閃光情報！`}
+              </div>
+            </div>
+          `;
+        })
+        .join("");
+
+      contentHtml = `
+        <div class="intel-summary-banner">
+          <div style="flex:1;min-width:220px;">
+            <div style="font-size:15px;font-weight:900;">📜 島嶼＆海域情報收集進度：${collectedIntelSet.size} / ${totalIntel}（${intelPct}%）</div>
+            <div style="font-size:12px;color:var(--text-muted);margin-top:2px;">已解鎖探險成就：${unlockedSet.size} / ${allAch.length} ｜ 各島情報皆為該科專屬考點，海域則藏有跨科彩蛋！</div>
+            <div class="intel-progress-track"><div class="intel-progress-fill" style="width:${intelPct}%"></div></div>
+          </div>
+        </div>
+        <h3 style="font-size:14px;margin-bottom:8px;">🏆 知識情報成就徽章</h3>
+        <div class="achievement-grid">${achHtml}</div>
+        <h3 style="font-size:14px;margin-bottom:8px;">🗂️ 已收錄情報與線索一覽</h3>
+        <div class="intel-filter-row">${filterPillsHtml}</div>
+        <div class="intel-grid">${intelCardsHtml}</div>
+      `;
     } else {
       const q = searchTerm.trim().toLowerCase();
       const backpackItems = (state.backpack || [])
@@ -1766,9 +2164,20 @@
       activeLifeTab = "builder";
       renderLifeContent();
     });
+    document.getElementById("tab-life-intel").addEventListener("click", () => {
+      activeLifeTab = "intel";
+      renderLifeContent();
+    });
     document.getElementById("tab-life-backpack").addEventListener("click", () => {
       activeLifeTab = "backpack";
       renderLifeContent();
+    });
+
+    body.querySelectorAll("[data-intel-filter]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        activeIntelFilter = btn.getAttribute("data-intel-filter") || "all";
+        renderLifeContent();
+      });
     });
 
     body.querySelectorAll("[data-buy-bld]").forEach((btn) => {
@@ -1823,6 +2232,16 @@
       subjectProgress[isl.subject] = getIslandStats(isl).avgPercent;
     });
 
+    const collectedSet = new Set(state.collectedIntel || []);
+    const oceanIntelCount = (DATA.intelItems || []).filter((x) => x.locationType === "ocean" && collectedSet.has(x.id)).length;
+    const achMap = new Map((DATA.intelAchievements || []).map((a) => [a.id, a.title]));
+    const unlockedList = (state.unlockedAchievements || []).map((id) => achMap.get(id) || id).join("、");
+    const cCfg = state.customReviewConfig;
+    const activeDays = getActiveCalendarDays();
+    const customRangeStr = cCfg && (cCfg.startDate || cCfg.examStartDate || (cCfg.excludedDates && cCfg.excludedDates.length) || (cCfg.extraDates && cCfg.extraDates.length))
+      ? `${activeDays[0]?.date || ""}~${activeDays[activeDays.length - 1]?.date || ""} (${activeDays.filter((d) => !d.isExam && !d.isRestDay).length}天)`
+      : "預設 (14天)";
+
     return {
       action: "sync",
       className: state.student.className || "普二速",
@@ -1836,6 +2255,12 @@
       streakDays: getStreakDays(),
       totalPomodoros: totalPomos,
       ownedBuildings: (state.ownedBuildings || []).length,
+      collectedIntelCount: (state.collectedIntel || []).length,
+      totalIntelCount: (DATA.intelItems || []).length,
+      oceanIntelCount,
+      unlockedAchievementsCount: (state.unlockedAchievements || []).length,
+      unlockedAchievementsList: unlockedList,
+      customReviewRange: customRangeStr,
       subjectProgress,
       stateSnapshot: state
     };
@@ -1963,7 +2388,7 @@
     const toMmDd = (dt) => `${String(dt.getMonth() + 1).padStart(2, "0")}/${String(dt.getDate()).padStart(2, "0")}`;
 
     const daysList = [];
-    const safeDays = Math.max(3, Math.min(30, Number(reviewDays) || 14));
+    const safeDays = Math.max(3, Math.min(45, Number(reviewDays) || 14));
     for (let offset = safeDays; offset >= 1; offset--) {
       const dt = new Date(startDt);
       dt.setDate(startDt.getDate() - offset);
@@ -2086,7 +2511,7 @@
       });
     });
 
-    DATA.calendarDays.forEach((d) => {
+    getActiveCalendarDays().forEach((d) => {
       if (!state.daySlots[d.date]) {
         const sm = {};
         (d.slots || []).forEach((s) => {
@@ -2842,7 +3267,9 @@
       )
       .join("");
 
-    const scheduleRows = DATA.calendarDays
+    const activeDays = getActiveCalendarDays();
+    const activeReviewCount = activeDays.filter((d) => !d.isExam && !d.isRestDay).length;
+    const scheduleRows = activeDays
       .map((day) => {
         const items = (state.schedule[day.date] || [])
           .map((nid) => {
@@ -2856,7 +3283,7 @@
           <tr>
             <td>${day.label}</td>
             <td>${day.countdown}</td>
-            <td>${items || (day.isExam ? "第二次段考日" : "自由複習／補漏")}</td>
+            <td>${items || (day.isExam ? "第二次段考日" : day.isRestDay ? "自訂休息日" : "自由複習／補漏")}</td>
           </tr>
         `;
       })
@@ -2866,8 +3293,8 @@
     printRoot.innerHTML = `
       <div class="print-header">
         <h2>11501 普二文組（普二速）・第二次段考「複習造島」學習檢核與排程報告</h2>
-        <p>班級：${escapeHtml(state.student.className || "普二速")}　座號：${escapeHtml(state.student.seatNo || "____")}　姓名：${escapeHtml(state.student.name || "________")}　段考日：2026/12/01–12/02</p>
-        <p>總體造島完成度：<strong>${g.overallPercent}%</strong> ｜ 已插旗認證據點：<strong>${g.conqueredNodes}/${g.totalNodes}</strong> ｜ 列印時間：${new Date().toLocaleString("zh-TW")}</p>
+        <p>班級：${escapeHtml(state.student.className || "普二速")}　座號：${escapeHtml(state.student.seatNo || "____")}　姓名：${escapeHtml(state.student.name || "________")}　段考日：${formatExamMmDdRange()}</p>
+        <p>總體造島完成度：<strong>${g.overallPercent}%</strong> ｜ 已插旗認證據點：<strong>${g.conqueredNodes}/${g.totalNodes}</strong> ｜ 已收集情報：<strong>${(state.collectedIntel || []).length}/${(DATA.intelItems || []).length}</strong> ｜ 列印時間：${new Date().toLocaleString("zh-TW")}</p>
       </div>
       <h3>一、六大學科島嶼與 25 個據點確認明細</h3>
       <table class="print-table">
@@ -2876,7 +3303,7 @@
         </thead>
         <tbody>${subjectRows}</tbody>
       </table>
-      <h3>二、考前 14 天（11/17～11/30）與段考日複習排程</h3>
+      <h3>二、考前 ${activeReviewCount} 天複習排程與段考日總表</h3>
       <table class="print-table">
         <thead>
           <tr><th>日期</th><th>倒數</th><th>排定複習據點</th></tr>
@@ -2945,6 +3372,7 @@
       onWalkEncounter: (islandId, nodeId, kind) => {
         openWalkEncounter(islandId, nodeId, kind);
       },
+      onCollectIntel: (intelId) => collectIntel(intelId),
       onSelectHub: () => {
         closeScheduleModal();
         closeReportModal();
@@ -3034,6 +3462,13 @@
       closeCheckinModal();
       closeAdminModal();
       openLifeModal("builder");
+    });
+    document.getElementById("hud-intel-btn")?.addEventListener("click", () => {
+      closeScheduleModal();
+      closeReportModal();
+      closeCheckinModal();
+      closeAdminModal();
+      openLifeModal("intel");
     });
     document.getElementById("close-life-btn").addEventListener("click", closeLifeModal);
 
@@ -3379,12 +3814,12 @@
     document.getElementById("close-edit-btn").addEventListener("click", closeEditNodeModal);
     document.getElementById("close-encounter-btn").addEventListener("click", closeEncounterModal);
 
-    // Reset Slots to School Defaults
+    // Reset Slots & Custom Review Days Controls
     const resetSlotsBtn = document.getElementById("reset-slots-btn");
     if (resetSlotsBtn) {
       resetSlotsBtn.addEventListener("click", () => {
         state.daySlots = createDefaultDaySlots();
-        DATA.calendarDays.forEach((d) => {
+        getActiveCalendarDays().forEach((d) => {
           state.customDayMins[d.date] = null;
         });
         saveState();
@@ -3392,6 +3827,59 @@
         showToast("↺ 已重設為週一二四晚自習 (18:40–20:25) 與週末雙時段預設！");
       });
     }
+
+    document.getElementById("apply-custom-review-btn")?.addEventListener("click", () => {
+      const sVal = document.getElementById("custom-review-start")?.value || "";
+      const esVal = document.getElementById("custom-exam-start")?.value || "";
+      const eeVal = document.getElementById("custom-exam-end")?.value || esVal;
+      if (sVal && esVal && sVal >= esVal) {
+        showToast("⚠️ 開始複習日必須早於段考起始日喔！");
+        return;
+      }
+      const prev = state.customReviewConfig || {};
+      state.customReviewConfig = {
+        startDate: sVal,
+        examStartDate: esVal,
+        examEndDate: eeVal && eeVal >= esVal ? eeVal : esVal,
+        excludedDates: prev.excludedDates || [],
+        extraDates: prev.extraDates || []
+      };
+      ensureStateMatchesData();
+      saveState();
+      updateCountdown();
+      renderGlobalHUD();
+      renderScheduleGrid();
+      showToast("✅ 已套用自訂複習日與段考日期範圍！");
+    });
+
+    document.getElementById("reset-custom-review-btn")?.addEventListener("click", () => {
+      state.customReviewConfig = null;
+      ensureStateMatchesData();
+      saveState();
+      updateCountdown();
+      renderGlobalHUD();
+      renderScheduleGrid();
+      showToast("↺ 已恢復系統預設複習日與段考日程");
+    });
+
+    document.getElementById("add-extra-review-date-btn")?.addEventListener("click", () => {
+      const exInp = document.getElementById("extra-review-date");
+      const dStr = exInp ? exInp.value : "";
+      if (!dStr) {
+        showToast("⚠️ 請先在左側選擇要加排的日期！");
+        return;
+      }
+      const prev = state.customReviewConfig || { startDate: "", examStartDate: "", examEndDate: "", excludedDates: [], extraDates: [] };
+      const extras = new Set(prev.extraDates || []);
+      extras.add(dStr);
+      const excl = new Set(prev.excludedDates || []);
+      excl.delete(dStr);
+      state.customReviewConfig = { ...prev, extraDates: Array.from(extras), excludedDates: Array.from(excl) };
+      ensureStateMatchesData();
+      saveState();
+      renderScheduleGrid();
+      showToast(`✨ 已新增自訂複習日 ${dStr}！`);
+    });
 
     // GAS Sync Controls
     const gasInp = document.getElementById("gas-url-input");

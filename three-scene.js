@@ -323,8 +323,8 @@
       // Camera & boat tween targets
       this.cameraMode = "follow"; // follow | overview
       this.chaseCam = true; // 跑酷追逐視角：跑動時鏡頭自動繞到角色背後（C 鍵切換）
-      this.chaseDist = 11; // 鏡頭與角色的水平距離
-      this.chaseHeight = 4.6; // 鏡頭高於注視點的高度（越小越接近背後平視）
+      this.chaseDist = 8.4; // 鏡頭與角色的水平距離
+      this.chaseHeight = 3.5; // 鏡頭高於注視點的高度（越小越接近背後平視）
       this.cameraTargetPos = null;
       this.controlsTargetPos = null;
       this.isTweening = false;
@@ -335,9 +335,9 @@
       this.captainCat = null;
       this.boatMode = "auto"; // auto | free
       this.boatInput = { forward: 0, turn: 0 };
-      this.boatTarget = { x: 0, z: 18.5 };
-      this.boatCurrent = { x: 0, z: 10.5 };
-      this.boatAngle = 0;
+      this.boatTarget = { x: 16.5, z: 17.5 };
+      this.boatCurrent = { x: 16.5, z: 17.5 };
+      this.boatAngle = -0.6;
 
       // Controllable Q-version Nanshan Panther hero
       this.panther = null;
@@ -347,6 +347,8 @@
       this.figurineImages = {};
       this.colliders = [];
       this.campusBoards = new Map();
+      this.intelMeshes = new Map();
+      this.collectedIntelSet = new Set();
       this.customGlbs = {};
       this.dioramaBillboards = [];
       this.pantherState = {
@@ -356,6 +358,8 @@
         z: 3.35,
         groundY: 1.76,
         onWater: false,
+        onBridgeId: null,
+        jumpedFromWater: false,
         vy: 0,
         onGround: true,
         doubleJumped: false,
@@ -696,8 +700,8 @@
       const { width, height } = this._getViewportSize();
 
       this.scene = new THREE.Scene();
-      this.scene.background = new THREE.Color("#8fd8ff");
-      this.scene.fog = new THREE.FogExp2("#bce8ff", 0.0017);
+      this.scene.background = new THREE.Color("#7ec9f5");
+      this.scene.fog = new THREE.FogExp2("#adddf7", 0.0017);
 
       this.camera = new THREE.PerspectiveCamera(45, width / height, 0.5, 760);
       const psInit = this.pantherState;
@@ -730,10 +734,10 @@
         });
       }
 
-      this.hemiLight = new THREE.HemisphereLight("#e0f4ff", "#4c89b5", 1.08);
+      this.hemiLight = new THREE.HemisphereLight("#d8f0ff", "#3d749c", 0.68);
       this.scene.add(this.hemiLight);
 
-      this.sunLight = new THREE.DirectionalLight("#fff9e6", 1.2);
+      this.sunLight = new THREE.DirectionalLight("#fff5dc", 0.85);
       this.sunLight.position.set(36, 68, 34);
       this.sunLight.castShadow = true;
       this.sunLight.shadow.mapSize.width = 1024;
@@ -747,7 +751,7 @@
       this.sunLight.shadow.camera.bottom = -d;
       this.scene.add(this.sunLight);
 
-      this.rimLight = new THREE.DirectionalLight("#74b9ff", 0.35);
+      this.rimLight = new THREE.DirectionalLight("#63a9f2", 0.22);
       this.rimLight.position.set(-30, 18, -28);
       this.scene.add(this.rimLight);
 
@@ -762,6 +766,7 @@
       this.islandsData.forEach((island, idx) => this._buildIsland(island, idx));
       this._buildRadiatingBridges();
       this._buildDecorationsPool();
+      this._buildIntelCollectibles((window.ISLAND_DATA && window.ISLAND_DATA.intelItems) || []);
       this._buildBoat();
       this._buildWalkerCat();
       this._buildPanther();
@@ -839,7 +844,7 @@
 
       const env = this._getEnvTextures();
       const oceanMat = new THREE.MeshStandardMaterial({
-        color: "#c4f1ff",
+        color: "#8cdcf5",
         map: env.ocean,
         bumpMap: env.oceanBump,
         bumpScale: 0.15,
@@ -949,18 +954,22 @@
         });
       });
 
-      // 3. 6 Soaring Seagulls with flapping wings
+      // 3. 6 Soaring Seagulls with flapping / gliding wings
       const gullMat = new THREE.MeshStandardMaterial({ color: "#ffffff", roughness: 0.5 });
+      this.seagullRefs = [];
       for (let i = 0; i < 6; i++) {
         const gull = new THREE.Group();
+        const gullVis = new THREE.Group();
         const body = new THREE.Mesh(new THREE.ConeGeometry(0.12, 0.5, 6), gullMat);
         body.rotation.x = Math.PI / 2;
         const wingL = new THREE.Mesh(new THREE.BoxGeometry(0.65, 0.04, 0.22), gullMat);
         wingL.position.x = -0.32;
         const wingR = wingL.clone();
         wingR.position.x = 0.32;
-        gull.add(body, wingL, wingR);
+        gullVis.add(body, wingL, wingR);
+        gull.add(gullVis);
         this.scene.add(gull);
+        this.seagullRefs.push({ group: gull, visual: gullVis, wingL, wingR, isGlb: false });
 
         const orbitR = 12 + (i % 3) * 8;
         const heightY = 9 + (i % 3) * 2.2;
@@ -969,30 +978,38 @@
           const a = t * speed + i * 1.1;
           gull.position.set(Math.cos(a) * orbitR, heightY + Math.sin(t * 2 + i) * 0.5, Math.sin(a) * orbitR);
           gull.rotation.y = -a;
-          const flap = Math.sin(t * 10 + i * 2) * 0.45;
-          wingL.rotation.z = flap;
-          wingR.rotation.z = -flap;
+          const ref = this.seagullRefs[i];
+          if (ref && ref.isGlb) {
+            gullVis.rotation.z = Math.sin(t * 2.8 + i * 1.4) * 0.22;
+            gullVis.rotation.x = Math.cos(t * 2.0 + i) * 0.09;
+          } else {
+            const flap = Math.sin(t * 10 + i * 2) * 0.45;
+            wingL.rotation.z = flap;
+            wingR.rotation.z = -flap;
+          }
         });
       }
 
-      // 4. 2 Pairs of Jumping Dolphins arcing above ocean waves
+      // 4. 2 Pairs of Jumping Dolphins arcing in wide-open East/West bays (+Z forward aligned)
       const dolphinMat = new THREE.MeshStandardMaterial({ color: "#48dbfb", roughness: 0.3 });
+      this.dolphinRefs = [];
       const dolphinCenters = [
-        { x: -12, z: -4, r: 4.5 },
-        { x: 13, z: 4, r: 4.8 }
+        { x: -27, z: 0, r: 4.5 },
+        { x: 27, z: 0, r: 4.5 }
       ];
       dolphinCenters.forEach((dc, dIdx) => {
         for (let k = 0; k < 2; k++) {
           const dGroup = new THREE.Group();
           const dBody = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.32, 1.35, 10), dolphinMat);
-          dBody.rotation.z = Math.PI / 2;
+          dBody.rotation.x = Math.PI / 2;
           const dSnout = new THREE.Mesh(new THREE.ConeGeometry(0.16, 0.5, 8), dolphinMat);
-          dSnout.rotation.z = -Math.PI / 2;
-          dSnout.position.x = 0.85;
+          dSnout.rotation.x = Math.PI / 2;
+          dSnout.position.z = 0.85;
           const dFin = new THREE.Mesh(new THREE.ConeGeometry(0.16, 0.38, 4), dolphinMat);
-          dFin.position.set(-0.05, 0.32, 0);
+          dFin.position.set(0, 0.32, -0.05);
           dGroup.add(dBody, dSnout, dFin);
           this.scene.add(dGroup);
+          this.dolphinRefs.push(dGroup);
 
           this.ambientUpdaters.push((t) => {
             const phase = t * 1.25 + dIdx * 2.1 + k * 0.65;
@@ -1003,35 +1020,40 @@
               -0.45 + arc * 1.85,
               dc.z + Math.sin(ang) * dc.r
             );
-            dGroup.rotation.y = -ang + Math.PI / 2;
-            dGroup.rotation.z = Math.cos(phase * 1.6) * 0.55;
+            dGroup.rotation.y = -ang;
+            dGroup.rotation.x = -Math.cos(phase * 1.6) * 0.55;
+            dGroup.rotation.z = 0;
             dGroup.visible = arc > -0.35;
           });
         }
       });
 
-      // 5. Giant Spouting Whale cruising in outer sea
+      // 5. Giant Spouting Whale cruising strictly in open outer sea (R=85 clears all islands)
       const whaleGroup = new THREE.Group();
+      const whaleBodyGroup = new THREE.Group();
       const whaleMat = new THREE.MeshStandardMaterial({ color: "#2c6e91", roughness: 0.4 });
       const wBody = new THREE.Mesh(new THREE.SphereGeometry(1.4, 16, 12), whaleMat);
-      wBody.scale.set(1.9, 0.9, 1.0);
-      const wTail = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.14, 1.6), whaleMat);
-      wTail.position.set(-2.6, 0.15, 0);
+      wBody.scale.set(1.0, 0.9, 1.9);
+      const wTail = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.14, 0.9), whaleMat);
+      wTail.position.set(0, 0.15, -2.6);
+      whaleBodyGroup.add(wBody, wTail);
       const spout = new THREE.Mesh(
-        new THREE.ConeGeometry(0.45, 1.6, 10),
+        new THREE.ConeGeometry(0.48, 1.8, 10),
         new THREE.MeshBasicMaterial({ color: "#dff9fb", transparent: true, opacity: 0.72 })
       );
-      spout.position.set(0.9, 1.75, 0);
+      spout.position.set(0, 1.85, 1.85);
       spout.rotation.x = Math.PI;
-      whaleGroup.add(wBody, wTail, spout);
+      whaleGroup.add(whaleBodyGroup, spout);
       this.scene.add(whaleGroup);
+      this.whaleBodyGroup = whaleBodyGroup;
+      this.whaleSpout = spout;
 
       this.ambientUpdaters.push((t) => {
-        const a = t * 0.14;
-        whaleGroup.position.set(Math.cos(a) * 35, -0.25 + Math.sin(t * 1.5) * 0.18, Math.sin(a) * 34);
-        whaleGroup.rotation.y = -a + Math.PI / 2;
+        const a = t * 0.11;
+        whaleGroup.position.set(Math.cos(a) * 85, -0.25 + Math.sin(t * 1.5) * 0.18, Math.sin(a) * 85);
+        whaleGroup.rotation.y = -a;
         const spoutPulse = Math.max(0, Math.sin(t * 1.4));
-        spout.scale.set(0.7 + spoutPulse * 0.5, spoutPulse * 1.2, 0.7 + spoutPulse * 0.5);
+        spout.scale.set(0.7 + spoutPulse * 0.5, spoutPulse * 1.25, 0.7 + spoutPulse * 0.5);
         spout.visible = spoutPulse > 0.12;
       });
 
@@ -1246,7 +1268,7 @@
             if (mat.map) {
               mat.emissive = new THREE.Color(0xffffff);
               mat.emissiveMap = mat.map;
-              mat.emissiveIntensity = 0.25;
+              mat.emissiveIntensity = 0.09;
             }
             mat.needsUpdate = true;
           }
@@ -1397,7 +1419,7 @@
         const model = gltf.scene || (gltf.scenes && gltf.scenes[0]);
         if (!model) return;
         let box = this._measureModelBox(model);
-        const targetH = slot === "panther" ? 3.8 : slot === "hub" ? 7.6 : 7.8;
+        const targetH = slot === "panther" ? 1.9 : slot === "hub" ? 7.6 : 7.8;
         const scale = targetH / Math.max(box.max.y - box.min.y, 0.001);
         model.scale.setScalar(scale);
         box = this._measureModelBox(model);
@@ -1447,6 +1469,146 @@
       setTimeout(() => {
         this._loadCatMascots("assets/cat_3d.glb?v=6");
       }, 650);
+      setTimeout(() => {
+        this._loadWildlifeAndDecorations();
+      }, 1150);
+    }
+
+    _clearGroupChildren(group) {
+      while (group && group.children.length) {
+        group.remove(group.children[0]);
+      }
+    }
+
+    _loadPropGLB(url, targetSize, sizeMode, onReady, tries = 0) {
+      const THREE = window.THREE;
+      if (!THREE || !THREE.GLTFLoader) {
+        if (tries < 50) setTimeout(() => this._loadPropGLB(url, targetSize, sizeMode, onReady, tries + 1), 200);
+        return;
+      }
+      new THREE.GLTFLoader().load(
+        url,
+        (gltf) => {
+          const model = gltf.scene || (gltf.scenes && gltf.scenes[0]);
+          if (!model) return;
+          let box = this._measureModelBox(model);
+          const sz = new THREE.Vector3();
+          box.getSize(sz);
+          const refDim = sizeMode === "max" ? Math.max(sz.x, sz.y, sz.z, 0.001) : Math.max(sz.y, 0.001);
+          model.scale.setScalar(targetSize / refDim);
+          box = this._measureModelBox(model);
+          const center = box.getCenter(new THREE.Vector3());
+          model.position.set(
+            model.position.x - center.x,
+            sizeMode === "max" ? model.position.y - center.y : model.position.y - box.min.y,
+            model.position.z - center.z
+          );
+          this._prepareGltfMeshes(model, false);
+          if (onReady) onReady(model);
+        },
+        undefined,
+        () => {}
+      );
+    }
+
+    _loadWildlifeAndDecorations() {
+      const THREE = window.THREE;
+      const tasks = [
+        () => {
+          this._loadPropGLB("assets/dolphin_3d.glb?v=9", 2.1, "max", (base) => {
+            if (!this.dolphinRefs) return;
+            this.dolphinRefs.forEach((dGroup) => {
+              this._clearGroupChildren(dGroup);
+              const clone = base.clone();
+              dGroup.add(clone);
+            });
+          });
+        },
+        () => {
+          this._loadPropGLB("assets/seagull_3d.glb?v=9", 1.55, "max", (base) => {
+            if (!this.seagullRefs) return;
+            this.seagullRefs.forEach((ref) => {
+              this._clearGroupChildren(ref.visual);
+              const clone = base.clone();
+              clone.rotation.y = -Math.PI / 2;
+              ref.visual.add(clone);
+              ref.isGlb = true;
+            });
+          });
+        },
+        () => {
+          this._loadPropGLB("assets/whale_3d.glb?v=9", 8.2, "max", (base) => {
+            if (!this.whaleBodyGroup) return;
+            this._clearGroupChildren(this.whaleBodyGroup);
+            base.rotation.y = -0.7347;
+            base.position.y = -0.22;
+            this.whaleBodyGroup.add(base);
+            if (this.whaleSpout) this.whaleSpout.position.set(0, 1.85, 1.85);
+          });
+        },
+        () => {
+          this._loadPropGLB("assets/surfboard_3d.glb?v=9", 1.65, "max", (base) => {
+            if (!this.panther || !this.panther.surfboard) return;
+            this._clearGroupChildren(this.panther.surfboard);
+            base.rotation.y = 1.9915;
+            base.position.set(0, 0.05, 0);
+            this.panther.surfboard.scale.setScalar(1);
+            this.panther.surfboard.add(base);
+          });
+        },
+        () => {
+          this._loadPropGLB("assets/boat_3d.glb?v=9", 3.85, "height", (base) => {
+            if (!this.boatVisualGroup) return;
+            this._clearGroupChildren(this.boatVisualGroup);
+            this.boatVisualGroup.add(base);
+            if (this.captainCat && this.captainCat.group) {
+              this.captainCat.group.position.set(0, 0.56, -0.45);
+            }
+          });
+        }
+      ];
+
+      const decoSpecs = [
+        ["bld-tent", "assets/deco_tent.glb?v=8", 2.05, 0],
+        ["bld-fountain", "assets/deco_fountain.glb?v=8", 2.15, 0],
+        ["bld-picnic", "assets/deco_picnic.glb?v=8", 0.92, 0],
+        ["bld-lantern", "assets/deco_lantern.glb?v=8", 2.1, 0],
+        ["bld-telescope", "assets/deco_telescope.glb?v=8", 2.55, 0.2],
+        ["bld-carousel", "assets/deco_carousel.glb?v=8", 2.8, 0],
+        ["bld-ferris", "assets/deco_ferris.glb?v=8", 3.2, -1.15]
+      ];
+      decoSpecs.forEach(([id, url, targetH, rotY]) => {
+        tasks.push((done) => {
+          let finished = false;
+          const finish = () => {
+            if (finished) return;
+            finished = true;
+            if (done) done();
+          };
+          this._loadPropGLB(url, targetH, "height", (base) => {
+            const g = this.decorationMeshes && this.decorationMeshes.get(id);
+            if (g) {
+              const target = (g.userData && g.userData.spinTarget) || g;
+              this._clearGroupChildren(target);
+              if (rotY) base.rotation.y = rotY;
+              target.add(base);
+            }
+            finish();
+          });
+          setTimeout(finish, 3000);
+        });
+      });
+
+      // 先並行載入海空活體與帆船，再 2 個併發緩載裝飾（避免同時佔用行動端頻寬）
+      let qi = 0;
+      const runQueue = () => {
+        if (qi >= tasks.length) return;
+        const fn = tasks[qi++];
+        if (fn.length > 0) fn(runQueue);
+        else { fn(); setTimeout(runQueue, 180); }
+      };
+      runQueue();
+      runQueue();
     }
 
     _loadCatMascots(url, tries = 0) {
@@ -1489,10 +1651,58 @@
           if (this.walkerCat && this.walkerCat.group) {
             const walkerClone = base.clone();
             walkerClone.scale.multiplyScalar(0.72);
-            while (this.walkerCat.group.children.length) {
-              this.walkerCat.group.remove(this.walkerCat.group.children[0]);
-            }
+            this._clearGroupChildren(this.walkerCat.group);
             this.walkerCat.group.add(walkerClone);
+          }
+
+          // 3. 海上帆船船長貓共用真 3D 公仔
+          if (this.captainCat && this.captainCat.group) {
+            const captainClone = base.clone();
+            captainClone.scale.multiplyScalar(0.56);
+            this._clearGroupChildren(this.captainCat.group);
+            this.captainCat.group.add(captainClone);
+          }
+
+          // 4. 六座學科島守護貓全部共享 cat_3d.glb（不額外增加網路流量）
+          if (this.islandCats) {
+            this.islandCats.forEach((catObj, islandId) => {
+              const islClone = base.clone();
+              islClone.scale.multiplyScalar(0.76);
+              islClone.traverse((n) => {
+                if (n.isMesh) {
+                  n.userData = Object.assign({}, n.userData, { islandId, isCat: true });
+                  this.clickTargets.push(n);
+                }
+              });
+              this._clearGroupChildren(catObj.group);
+              catObj.group.add(islClone);
+            });
+          }
+
+          // 5. 商店解鎖「自強不息黃金貓雕像」共用 cat_3d.glb 鍍金材質
+          const statueGroup = this.decorationMeshes && this.decorationMeshes.get("bld-statue");
+          if (statueGroup) {
+            this._clearGroupChildren(statueGroup);
+            const ped = new THREE.Mesh(
+              new THREE.CylinderGeometry(0.65, 0.8, 0.56, 16),
+              new THREE.MeshStandardMaterial({ color: "#ede6d6", roughness: 0.65 })
+            );
+            ped.position.y = 0.28;
+            const goldCat = base.clone();
+            goldCat.scale.multiplyScalar(0.84);
+            goldCat.position.y = 0.55;
+            goldCat.traverse((n) => {
+              if (n.isMesh && n.material) {
+                const gm = n.material.clone();
+                gm.color = new THREE.Color("#ffd32a");
+                gm.emissive = new THREE.Color("#b45309");
+                gm.emissiveIntensity = 0.16;
+                gm.metalness = 0.45;
+                gm.roughness = 0.28;
+                n.material = gm;
+              }
+            });
+            statueGroup.add(ped, goldCat);
           }
         },
         undefined,
@@ -1516,7 +1726,7 @@
           const model = gltf.scene || (gltf.scenes && gltf.scenes[0]);
           if (!model) return;
           let box = this._measureModelBox(model);
-          const targetH = 3.8;
+          const targetH = 1.9;
           model.scale.setScalar(targetH / Math.max(box.max.y - box.min.y, 0.001));
           box = this._measureModelBox(model);
           model.position.y -= box.min.y;
@@ -1783,25 +1993,25 @@
 
       const env = this._getEnvTextures();
       const sandMat = new THREE.MeshStandardMaterial({
-        color: "#fff4df",
+        color: "#ecd7b6",
         map: env.sand,
         bumpMap: env.sandBump,
         bumpScale: 0.09,
         roughness: 0.86
       });
       const grassMat = new THREE.MeshStandardMaterial({
-        color: "#89d697",
+        color: "#78bf86",
         map: env.grass,
         bumpMap: env.grassBump,
         bumpScale: 0.08,
         roughness: 0.78
       });
       const plazaMat = new THREE.MeshStandardMaterial({
-        color: "#fffaf0",
+        color: "#e6dcc8",
         map: env.plaza,
         bumpMap: env.plazaBump,
         bumpScale: 0.12,
-        roughness: 0.74
+        roughness: 0.76
       });
 
       const sandBase = this._createExtrudedLayer(13.5, 0.8, 0.65, 0.25, sandMat);
@@ -1983,14 +2193,14 @@
       const THREE = window.THREE;
       const env = this._getEnvTextures();
       const woodCreamMat = new THREE.MeshStandardMaterial({
-        color: "#fff5e4",
+        color: "#ead4b5",
         map: env.wood,
         bumpMap: env.woodBump,
         bumpScale: 0.08,
-        roughness: 0.72
+        roughness: 0.74
       });
       const woodWarmMat = new THREE.MeshStandardMaterial({
-        color: "#f3cb9d",
+        color: "#dfb280",
         map: env.wood,
         bumpMap: env.woodBump,
         bumpScale: 0.08,
@@ -2002,7 +2212,7 @@
         roughness: 0.78
       });
       const stonePierMat = new THREE.MeshStandardMaterial({
-        color: "#f1e8d6",
+        color: "#ddd0b8",
         map: env.cliffTile,
         roughness: 0.78
       });
@@ -2032,7 +2242,7 @@
         for (let i = 0; i <= steps; i++) {
           const t = i / steps;
           const dist = startDist + (endDist - startDist) * t;
-          const archY = 0.78 + Math.sin(t * Math.PI) * 1.45;
+          const archY = 1.05 + Math.sin(t * Math.PI) * 1.45;
           const cx = dir.x * dist;
           const cz = dir.z * dist;
 
@@ -2104,7 +2314,7 @@
         // 橋頭＆島口迎賓彩門拱門（搭配金星徽章）
         [0.04, 0.96].forEach((gateT) => {
           const gDist = startDist + (endDist - startDist) * gateT;
-          const gY = 0.78 + Math.sin(gateT * Math.PI) * 1.45;
+          const gY = 1.05 + Math.sin(gateT * Math.PI) * 1.45;
           const gate = new THREE.Group();
           gate.position.set(dir.x * gDist, gY, dir.z * gDist);
           gate.lookAt(dir.x * (gDist + 1), gY, dir.z * (gDist + 1));
@@ -2267,9 +2477,10 @@
           horse.position.set(Math.cos(a) * 0.72, 0.65, Math.sin(a) * 0.72);
           spinner.add(horse);
         }
+        g.userData.spinTarget = spinner;
         g.add(spinner);
         this.ambientUpdaters.push((t) => {
-          if (g.visible) spinner.rotation.y = t * 1.4;
+          if (g.visible) spinner.rotation.y = t * 0.85;
         });
       });
 
@@ -2336,6 +2547,154 @@
       const ownedSet = new Set(ownedBuildingIds || []);
       this.decorationMeshes.forEach((group, id) => {
         group.visible = ownedSet.has(id);
+      });
+    }
+
+    _buildIntelCollectibles(intelItems) {
+      const THREE = window.THREE;
+      if (!Array.isArray(intelItems) || intelItems.length === 0) return;
+
+      intelItems.forEach((item, idx) => {
+        let wx = 0;
+        let wz = 0;
+        let baseY = 0.42;
+        let accentHex = "#38bdf8";
+
+        if (item.locationType === "ocean" && item.worldPos) {
+          wx = item.worldPos.x;
+          wz = item.worldPos.z;
+          baseY = 0.42;
+        } else {
+          const isl = this.islandsData.find((i) => i.id === item.islandId);
+          if (!isl || !item.localPos) return;
+          wx = isl.position.x + item.localPos.x;
+          wz = isl.position.z + item.localPos.z;
+          const surf = this._getSurfaceInfoAt(wx, wz, false);
+          baseY = (surf.onWater ? 0.42 : surf.groundY) + 0.95;
+          accentHex = (isl.colors && isl.colors.primary) || "#f59e0b";
+        }
+
+        const root = new THREE.Group();
+        root.position.set(wx, baseY, wz);
+        const vis = new THREE.Group();
+
+        let coreMat = null;
+        let ringMat = null;
+        let ringMesh = null;
+
+        if (item.locationType === "ocean") {
+          // 海域知識漂流瓶（清透藍瓶＋發光黃金卷軸＋水面光環）
+          coreMat = new THREE.MeshStandardMaterial({
+            color: "#7dd3fc",
+            emissive: "#0284c7",
+            emissiveIntensity: 0.35,
+            transparent: true,
+            opacity: 0.86,
+            roughness: 0.18
+          });
+          const bottle = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.28, 0.78, 12), coreMat);
+          bottle.rotation.z = 0.28;
+          const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.16, 0.22, 10), coreMat);
+          neck.position.set(-0.12, 0.44, 0);
+          neck.rotation.z = 0.28;
+          const cork = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.1, 0.09, 0.16, 8),
+            new THREE.MeshStandardMaterial({ color: "#d97706", roughness: 0.75 })
+          );
+          cork.position.set(-0.16, 0.56, 0);
+          cork.rotation.z = 0.28;
+          const scroll = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.11, 0.11, 0.46, 8),
+            new THREE.MeshBasicMaterial({ color: "#fde047" })
+          );
+          scroll.rotation.z = 0.28;
+          ringMat = new THREE.MeshBasicMaterial({
+            color: "#bae6fd",
+            transparent: true,
+            opacity: 0.72,
+            side: THREE.DoubleSide
+          });
+          ringMesh = new THREE.Mesh(new THREE.RingGeometry(0.45, 0.68, 18), ringMat);
+          ringMesh.rotation.x = -Math.PI / 2;
+          ringMesh.position.y = -0.22;
+          vis.add(bottle, neck, cork, scroll, ringMesh);
+        } else {
+          // 島嶼學科知識情報結晶（學科代表色菱晶＋金色光環）
+          coreMat = new THREE.MeshStandardMaterial({
+            color: accentHex,
+            emissive: accentHex,
+            emissiveIntensity: 0.42,
+            roughness: 0.22,
+            metalness: 0.18
+          });
+          const crystal = new THREE.Mesh(new THREE.OctahedronGeometry(0.4, 0), coreMat);
+          crystal.scale.set(0.85, 1.25, 0.85);
+          ringMat = new THREE.MeshBasicMaterial({
+            color: "#fde047",
+            transparent: true,
+            opacity: 0.85
+          });
+          ringMesh = new THREE.Mesh(new THREE.TorusGeometry(0.58, 0.045, 6, 18), ringMat);
+          ringMesh.rotation.x = Math.PI * 0.36;
+          vis.add(crystal, ringMesh);
+        }
+
+        vis.traverse((c) => {
+          if (c.isMesh) {
+            c.userData = { isIntel: true, intelId: item.id };
+            this.clickTargets.push(c);
+          }
+        });
+
+        root.add(vis);
+        this.scene.add(root);
+        this.intelMeshes.set(item.id, {
+          item,
+          root,
+          vis,
+          coreMat,
+          ringMat,
+          ringMesh,
+          baseY,
+          wx,
+          wz,
+          phase: idx * 0.65,
+          isOcean: item.locationType === "ocean"
+        });
+
+        this.interactableSpots.push({
+          type: "intel",
+          intelId: item.id,
+          islandId: item.islandId,
+          label: `📜 收集情報：${item.title}`,
+          x: wx,
+          z: wz
+        });
+      });
+
+      this.ambientUpdaters.push((t) => {
+        this.intelMeshes.forEach((entry) => {
+          const collected = this.collectedIntelSet.has(entry.item.id);
+          const bobAmp = entry.isOcean ? 0.14 : 0.18;
+          entry.root.position.y = entry.baseY + Math.sin(t * 2.4 + entry.phase) * bobAmp;
+          entry.vis.rotation.y = t * (collected ? 0.45 : 1.35) + entry.phase;
+          if (entry.ringMesh && !entry.isOcean) {
+            entry.ringMesh.rotation.z = t * 1.1 + entry.phase;
+          }
+        });
+      });
+    }
+
+    syncCollectedIntel(collectedIds) {
+      this.collectedIntelSet = new Set(collectedIds || []);
+      this.intelMeshes.forEach((entry, id) => {
+        const done = this.collectedIntelSet.has(id);
+        entry.vis.scale.setScalar(done ? 0.42 : 1.0);
+        if (entry.coreMat) {
+          entry.coreMat.emissiveIntensity = done ? 0.08 : entry.isOcean ? 0.35 : 0.42;
+          if (entry.isOcean) entry.coreMat.opacity = done ? 0.35 : 0.86;
+        }
+        if (entry.ringMesh) entry.ringMesh.visible = !done;
       });
     }
 
@@ -2503,7 +2862,7 @@
       group.add(reefMesh);
 
       const env = this._getEnvTextures();
-      const sandTint = new THREE.Color(theme.sandColor || island.colors.sand).lerp(new THREE.Color("#ffffff"), 0.25);
+      const sandTint = new THREE.Color(theme.sandColor || island.colors.sand).lerp(new THREE.Color("#e8d3b3"), 0.12);
       const sandMat = new THREE.MeshStandardMaterial({
         color: sandTint,
         map: env.sand,
@@ -2518,7 +2877,7 @@
       this.clickTargets.push(sandMesh);
 
       // 2F: Theme-customized Grassy / Scenic Plateau
-      const grassTint = new THREE.Color(theme.grassColor || island.colors.ground).lerp(new THREE.Color("#ffffff"), 0.24);
+      const grassTint = new THREE.Color(theme.grassColor || island.colors.ground);
       const grassMat = new THREE.MeshStandardMaterial({
         color: grassTint,
         map: env.grass,
@@ -2533,7 +2892,7 @@
       this.clickTargets.push(grassMesh);
 
       // 3F: Elevated Scenic Hill & Waterfall Cliff behind the landmark
-      const hillTint = new THREE.Color(theme.hillColor || "#4e9a59").lerp(new THREE.Color("#ffffff"), 0.22);
+      const hillTint = new THREE.Color(theme.hillColor || "#4e9a59");
       const hillMat = new THREE.MeshStandardMaterial({
         color: hillTint,
         map: env.grass,
@@ -3713,7 +4072,11 @@
       captain.group.position.set(0, 0.45, 0.72);
       this.captainCat = captain;
 
-      boat.add(hull, bow, mast, sail, lantern, captain.group);
+      const boatVisualGroup = new THREE.Group();
+      boatVisualGroup.add(hull, bow, mast, sail, lantern);
+      this.boatVisualGroup = boatVisualGroup;
+
+      boat.add(boatVisualGroup, captain.group);
       boat.position.set(this.boatCurrent.x, 0.05, this.boatCurrent.z);
       this.scene.add(boat);
       this.boat = boat;
@@ -4165,32 +4528,34 @@
       const ps = this.pantherState;
       group.position.set(ps.x, ps.y, ps.z);
 
-      // Dynamic surfboard shown automatically when Panther crosses ocean waters
+      // Dynamic surfboard shown automatically when Panther crosses ocean waters (hot-swapped with surfboard_3d.glb)
       const surfboard = new THREE.Group();
-      const boardGeo = new THREE.BoxGeometry(1.1, 0.14, 2.55);
-      const boardMat = new THREE.MeshStandardMaterial({ color: "#38bdf8", roughness: 0.35, metalness: 0.1 });
+      const boardGeo = new THREE.CylinderGeometry(0.46, 0.36, 2.2, 16);
+      boardGeo.rotateX(Math.PI / 2);
+      boardGeo.scale(1.0, 0.14, 1.0);
+      const boardMat = new THREE.MeshStandardMaterial({ color: "#fdf6e3", roughness: 0.28, metalness: 0.06 });
       const boardMesh = new THREE.Mesh(boardGeo, boardMat);
-      boardMesh.position.y = 0.08;
+      boardMesh.position.y = 0.06;
       boardMesh.castShadow = true;
       const stripeMesh = new THREE.Mesh(
-        new THREE.BoxGeometry(0.32, 0.16, 2.35),
-        new THREE.MeshStandardMaterial({ color: "#ffd32a", roughness: 0.3 })
+        new THREE.BoxGeometry(0.14, 0.04, 2.0),
+        new THREE.MeshStandardMaterial({ color: "#8f2130", roughness: 0.35 })
       );
-      stripeMesh.position.y = 0.09;
-      const noseMesh = new THREE.Mesh(
-        new THREE.ConeGeometry(0.55, 0.72, 4),
-        new THREE.MeshStandardMaterial({ color: "#8f2130", roughness: 0.4 })
+      stripeMesh.position.y = 0.1;
+      const finMesh = new THREE.Mesh(
+        new THREE.BoxGeometry(0.05, 0.24, 0.32),
+        new THREE.MeshStandardMaterial({ color: "#38bdf8", roughness: 0.3 })
       );
-      noseMesh.rotation.x = Math.PI / 2;
-      noseMesh.scale.y = 0.18;
-      noseMesh.position.set(0, 0.09, 1.55);
-      surfboard.add(boardMesh, stripeMesh, noseMesh);
+      finMesh.position.set(0, -0.08, -0.78);
+      surfboard.add(boardMesh, stripeMesh, finMesh);
+      surfboard.scale.setScalar(0.65);
       surfboard.visible = false;
       group.add(surfboard);
 
       // 1. Primary True 360° Volumetric 3D Chibi Nanshan Panther Mesh
       const pantherParts = this._build3DPantherMesh(ps.sex);
       const meshHolder = pantherParts.root;
+      meshHolder.scale.setScalar(0.52);
       meshHolder.traverse((c) => {
         if (c.isMesh) this.clickTargets.push(c);
       });
@@ -4200,8 +4565,8 @@
       // 2. Optional Higgsfield 8-direction Sprite Billboard mode
       const spriteHolder = new THREE.Group();
       const initTex = this._getPantherTexture(ps.sex, "front", 0);
-      const spriteGeo = new THREE.PlaneGeometry(3.25, 4.65);
-      spriteGeo.translate(0, 2.3, 0);
+      const spriteGeo = new THREE.PlaneGeometry(1.75, 2.45);
+      spriteGeo.translate(0, 1.22, 0);
       const spriteMat = new THREE.MeshBasicMaterial({
         map: initTex,
         transparent: true,
@@ -4221,8 +4586,8 @@
         depthWrite: false,
         side: THREE.DoubleSide
       });
-      const emoteSprite = new THREE.Mesh(new THREE.PlaneGeometry(4.8, 1.2), emoteMat);
-      emoteSprite.position.set(0, this.pantherRenderMode === "sprite" ? 5.2 : 3.45, 0.05);
+      const emoteSprite = new THREE.Mesh(new THREE.PlaneGeometry(3.2, 0.8), emoteMat);
+      emoteSprite.position.set(0, this.pantherRenderMode === "sprite" ? 2.85 : 2.1, 0.05);
       emoteSprite.visible = false;
       group.add(emoteSprite);
 
@@ -4235,7 +4600,7 @@
         opacity: 0.42,
         depthWrite: false
       });
-      const shadowMesh = new THREE.Mesh(new THREE.CircleGeometry(1.08, 22), shadowMat);
+      const shadowMesh = new THREE.Mesh(new THREE.CircleGeometry(0.6, 22), shadowMat);
       shadowMesh.rotation.x = -Math.PI / 2;
       shadowMesh.position.set(ps.x, ps.y + 0.04, ps.z);
       this.scene.add(shadowMesh);
@@ -4266,84 +4631,110 @@
       };
     }
 
-    _getSurfaceInfoAt(x, z) {
+    _getBridgeCoord(x, z, island) {
+      const ix = island.position.x;
+      const iz = island.position.z;
+      const len = Math.hypot(ix, iz) || 1;
+      const dxAxis = ix / len;
+      const dzAxis = iz / len;
+      const startDist = 11.1;
+      const endDist = len - island.radius * 0.84;
+      const proj = x * dxAxis + z * dzAxis;
+      const signedPerp = -x * dzAxis + z * dxAxis;
+      const t = Math.max(0, Math.min(1, (proj - startDist) / Math.max(endDist - startDist, 0.01)));
+      const bridgeY = 1.15 + Math.sin(t * Math.PI) * 1.45;
+      return { proj, signedPerp, startDist, endDist, dxAxis, dzAxis, bridgeY };
+    }
+
+    _getSurfaceInfoAt(x, z, allowBridge = true) {
       const waveY = 0.22 + Math.sin(x * 0.14 + this.clockTime * 1.4) * 0.14;
       let maxGround = -Infinity;
       let onLand = false;
       let onIsland = null;
+      let surfaceType = "water";
+      let bridgeId = null;
 
-      // 1. Central Nanshan Hub Island
+      // 1. Central Nanshan Hub Island (with smooth sand-to-grass ramp)
       const hubDist = Math.hypot(x, z);
       if (hubDist <= 8.2) {
-        maxGround = Math.max(maxGround, 1.76);
+        maxGround = 1.76;
         onLand = true;
-      } else if (hubDist <= 11.25) {
-        maxGround = Math.max(maxGround, 1.56);
+        surfaceType = "hub";
+      } else if (hubDist <= 10.9) {
+        maxGround = 1.56;
         onLand = true;
-      } else if (hubDist <= 13.3) {
-        maxGround = Math.max(maxGround, 0.82);
+        surfaceType = "hub";
+      } else if (hubDist <= 12.3) {
+        const s = (12.3 - hubDist) / 1.4;
+        maxGround = 0.86 + s * (1.56 - 0.86);
         onLand = true;
+        surfaceType = "hub";
+      } else if (hubDist <= 13.4) {
+        maxGround = 0.86;
+        onLand = true;
+        surfaceType = "hub";
       }
 
       // 2. Radiating Bridges & 6 Subject Islands
       for (const island of this.islandsData) {
-        const ix = island.position.x;
-        const iz = island.position.z;
-        const len = Math.hypot(ix, iz) || 1;
-        const dxAxis = ix / len;
-        const dzAxis = iz / len;
-        const startDist = 11.1;
-        const endDist = len - island.radius * 0.84;
-        const proj = x * dxAxis + z * dzAxis;
-        const perp = Math.abs(-x * dzAxis + z * dxAxis);
-        if (proj >= startDist && proj <= endDist && perp <= 1.75) {
-          const t = Math.max(0, Math.min(1, (proj - startDist) / Math.max(endDist - startDist, 0.01)));
-          const bridgeY = 0.84 + Math.sin(t * Math.PI) * 1.45;
-          if (bridgeY > maxGround) maxGround = bridgeY;
-          onLand = true;
+        if (allowBridge) {
+          const bc = this._getBridgeCoord(x, z, island);
+          if (bc.proj >= bc.startDist && bc.proj <= bc.endDist && Math.abs(bc.signedPerp) <= 1.28) {
+            if (bc.bridgeY >= maxGround) {
+              maxGround = bc.bridgeY;
+              surfaceType = "bridge";
+              bridgeId = island.id;
+            }
+            onLand = true;
+          }
         }
 
-        const dx = x - ix;
-        const dz = z - iz;
+        const dx = x - island.position.x;
+        const dz = z - island.position.z;
         const dist = Math.hypot(dx, dz);
         const r = island.radius;
+        let islH = -Infinity;
 
         // Wooden dock
         if (Math.abs(dx) <= 1.15 && dz >= r * 0.65 && dz <= r * 1.18) {
-          maxGround = Math.max(maxGround, 0.66);
-          onLand = true;
-          onIsland = island;
+          islH = Math.max(islH, 0.66);
         }
         // Walkable 2F -> 3F stone stairs on south flank of hill terrace
         if (Math.abs(dx + 2.2) <= 1.18 && dz >= 3.6 && dz <= 6.45) {
           const st = Math.max(0, Math.min(1, (6.45 - dz) / 2.85));
-          maxGround = Math.max(maxGround, 1.84 + st * (3.25 - 1.84));
-          onLand = true;
-          onIsland = island;
+          islH = Math.max(islH, 1.84 + st * (3.25 - 1.84));
         }
         // 3F Hill terrace
         const hillDist = Math.hypot(dx + 2.6, dz + 2.8);
         if (hillDist <= r * 0.37) {
-          maxGround = Math.max(maxGround, 3.25);
-          onLand = true;
-          onIsland = island;
-        } else if (dist <= r * 0.81) {
+          islH = Math.max(islH, 3.25);
+        } else if (dist <= r * 0.76) {
           // 2F Grass plateau
-          maxGround = Math.max(maxGround, 1.84);
-          onLand = true;
-          onIsland = island;
+          islH = Math.max(islH, 1.84);
+        } else if (dist <= r * 0.87) {
+          // Smooth 1F -> 2F ramp meeting bridge head seamlessly
+          const st = (r * 0.87 - dist) / (r * 0.11);
+          islH = Math.max(islH, 0.98 + st * (1.84 - 0.98));
         } else if (dist <= r * 0.98) {
           // 1F Sand shoreline
-          maxGround = Math.max(maxGround, 0.98);
+          islH = Math.max(islH, 0.98);
+        }
+
+        if (islH > maxGround) {
+          maxGround = islH;
+          surfaceType = "island";
+          bridgeId = null;
+        }
+        if (islH > -Infinity) {
           onLand = true;
           onIsland = island;
         }
       }
 
       if (onLand) {
-        return { groundY: maxGround, onWater: false, island: onIsland };
+        return { groundY: maxGround, onWater: false, island: onIsland, surfaceType, bridgeId };
       }
-      return { groundY: waveY, onWater: true, island: null };
+      return { groundY: waveY, onWater: true, island: null, surfaceType: "water", bridgeId: null };
     }
 
     setPantherInput(ix, iy, sprint) {
@@ -4469,6 +4860,7 @@
     jumpPanther() {
       const ps = this.pantherState;
       if (ps.onGround) {
+        ps.jumpedFromWater = Boolean(ps.onWater);
         ps.vy = 11.4;
         ps.onGround = false;
         ps.doubleJumped = false;
@@ -4509,6 +4901,8 @@
       ps.vy = 0;
       ps.onGround = true;
       ps.onWater = false;
+      ps.onBridgeId = null;
+      ps.jumpedFromWater = false;
       ps.doubleJumped = false;
       ps.autoTarget = null;
       ps.boostTimer = 0;
@@ -4550,6 +4944,10 @@
       if (!target) {
         this.doPantherAction("cheer");
         return false;
+      }
+      if (target.type === "intel" && this.callbacks.onCollectIntel) {
+        this.callbacks.onCollectIntel(target.intelId);
+        return true;
       }
       if (target.type === "node" && target.kind === "encounter" && this.callbacks.onWalkEncounter) {
         this.callbacks.onWalkEncounter(target.islandId, target.nodeId, "encounter");
@@ -4603,6 +5001,11 @@
 
       for (const spot of this.interactableSpots) {
         const d = Math.hypot(ps.x - spot.x, ps.z - spot.z);
+        if (spot.type === "intel" && d < 2.15 && !this.collectedIntelSet.has(spot.intelId)) {
+          this.collectedIntelSet.add(spot.intelId);
+          this._spawnPantherFX(18, ["#38bdf8", "#ffd32a", "#fde047"], 0.45);
+          if (this.callbacks.onCollectIntel) this.callbacks.onCollectIntel(spot.intelId);
+        }
         if (d < bestDist) {
           bestDist = d;
           nextSpot = spot;
@@ -4820,14 +5223,14 @@
 
       const presets = {
         day: {
-          bg: "#8fd8ff",
-          fog: "#bce8ff",
-          hemiSky: "#e0f4ff",
-          hemiGround: "#4c89b5",
-          hemiInt: 1.08,
-          sunColor: "#fff9e6",
-          sunInt: 1.2,
-          ocean: "#c4f1ff",
+          bg: "#7ec9f5",
+          fog: "#adddf7",
+          hemiSky: "#d8f0ff",
+          hemiGround: "#3d749c",
+          hemiInt: 0.68,
+          sunColor: "#fff5dc",
+          sunInt: 0.85,
+          ocean: "#8cdcf5",
           starOpacity: 0.12,
           rainbow: true,
           winColor: "#bae6fd"
@@ -5024,11 +5427,11 @@
     _getFollowPose(x, y, z, width, height) {
       const THREE = window.THREE;
       const aspect = (width || 1200) / Math.max(height || 800, 1);
-      const camHeight = aspect < 0.85 ? 11.8 : 9.8;
-      const camBack = aspect < 0.85 ? 16.5 : 13.8;
+      const camHeight = aspect < 0.85 ? 8.2 : 6.8;
+      const camBack = aspect < 0.85 ? 12.2 : 10.2;
       return {
         camPos: new THREE.Vector3(x, y + camHeight, z + camBack),
-        targetPos: new THREE.Vector3(x, y + 1.6, z)
+        targetPos: new THREE.Vector3(x, y + 0.95, z)
       };
     }
 
@@ -5037,7 +5440,7 @@
       this._orbitHoldUntil = 0;
       this.selectedIslandId = null;
       this.boatMode = "auto";
-      this.boatTarget = { x: 0, z: 18.5 };
+      this.boatTarget = { x: 16.5, z: 17.5 };
       if (this.walkerCat) this.walkerCat.group.visible = false;
       this.refreshAllStates();
       this._checkPantherProximity();
@@ -5067,12 +5470,14 @@
       const ps = this.pantherState;
       ps.x = island.position.x + 0.35;
       ps.z = island.position.z + island.radius * 0.62;
-      const surf = this._getSurfaceInfoAt(ps.x, ps.z);
+      const surf = this._getSurfaceInfoAt(ps.x, ps.z, false);
       ps.groundY = surf.groundY;
       ps.y = surf.groundY;
       ps.vy = 0;
       ps.onGround = true;
       ps.onWater = surf.onWater;
+      ps.onBridgeId = null;
+      ps.jumpedFromWater = false;
       ps.doubleJumped = false;
       ps.autoTarget = null;
       ps.boostTimer = 0;
@@ -5115,6 +5520,10 @@
         const hit = hitObj.object.userData;
         if (hit && hit.isPanther) {
           this.doPantherAction("cheer");
+          return;
+        }
+        if (hit && hit.isIntel && this.callbacks.onCollectIntel) {
+          this.callbacks.onCollectIntel(hit.intelId);
           return;
         }
         if (hit && hit.isHub && this.callbacks.onSelectHub) {
@@ -5490,7 +5899,7 @@
       const rz = fx;
 
       const sprinting = Boolean(inp.sprint || ps.sprintToggle);
-      const surfInfoBefore = this._getSurfaceInfoAt(ps.x, ps.z);
+      const surfInfoBefore = this._getSurfaceInfoAt(ps.x, ps.z, Boolean(ps.onBridgeId));
       const baseSpeed = surfInfoBefore.onWater ? 15.2 : 12.0;
       const speed = baseSpeed * (sprinting ? 1.65 : 1.0);
 
@@ -5530,18 +5939,64 @@
         const prevZ = ps.z;
         const rawX = Math.max(-95, Math.min(95, prevX + worldMoveX * speed * moveStrength * dt));
         const rawZ = Math.max(-95, Math.min(95, prevZ + worldMoveZ * speed * moveStrength * dt));
-        const colRes = this._resolveCollisions(rawX, rawZ, ps.y, 0.42);
+        const colRes = this._resolveCollisions(rawX, rawZ, ps.y, 0.28);
         let nextX = Math.max(-95, Math.min(95, colRes.x));
         let nextZ = Math.max(-95, Math.min(95, colRes.z));
+
+        // 橋樑實體護欄＆海橋隔離物理：在橋上受左右護欄限制不落海；在海上不能從側面/跳躍上橋
+        const fromBridge = (bc, proj, perp) => ({
+          x: bc.dxAxis * proj - bc.dzAxis * perp,
+          z: bc.dzAxis * proj + bc.dxAxis * perp
+        });
+        if (ps.onBridgeId) {
+          const bridgeIsl = this.islandsData.find((i) => i.id === ps.onBridgeId);
+          if (bridgeIsl) {
+            const bNext = this._getBridgeCoord(nextX, nextZ, bridgeIsl);
+            if (bNext.proj >= bNext.startDist - 0.25 && bNext.proj <= bNext.endDist + 0.25) {
+              const clampedPerp = Math.max(-0.92, Math.min(0.92, bNext.signedPerp));
+              const pt = fromBridge(bNext, bNext.proj, clampedPerp);
+              nextX = pt.x;
+              nextZ = pt.z;
+            } else {
+              ps.onBridgeId = null;
+            }
+          } else {
+            ps.onBridgeId = null;
+          }
+        }
+        if (!ps.onBridgeId) {
+          for (const isl of this.islandsData) {
+            const bPrev = this._getBridgeCoord(prevX, prevZ, isl);
+            const bNext = this._getBridgeCoord(nextX, nextZ, isl);
+            if (bNext.proj >= bNext.startDist && bNext.proj <= bNext.endDist && Math.abs(bNext.signedPerp) <= 1.55) {
+              const fromLand = !surfInfoBefore.onWater && !ps.jumpedFromWater;
+              const viaEndGate = (bPrev.proj <= bNext.startDist + 1.2 || bPrev.proj >= bNext.endDist - 1.2) && Math.abs(bNext.signedPerp) <= 1.15;
+              if (fromLand && viaEndGate) {
+                ps.onBridgeId = isl.id;
+                const clampedPerp = Math.max(-0.92, Math.min(0.92, bNext.signedPerp));
+                const pt = fromBridge(bNext, bNext.proj, clampedPerp);
+                nextX = pt.x;
+                nextZ = pt.z;
+              } else {
+                const side = bPrev.signedPerp === 0 ? (bNext.signedPerp >= 0 ? 1 : -1) : Math.sign(bPrev.signedPerp);
+                const pt = fromBridge(bNext, bNext.proj, side * 1.64);
+                nextX = pt.x;
+                nextZ = pt.z;
+              }
+              break;
+            }
+          }
+        }
+
         if (ps.onGround) {
-          const cliffCheck = this._getSurfaceInfoAt(nextX, nextZ);
+          const cliffCheck = this._getSurfaceInfoAt(nextX, nextZ, Boolean(ps.onBridgeId));
           if (cliffCheck.groundY - surfInfoBefore.groundY > 0.72) {
-            const tryX = this._resolveCollisions(rawX, prevZ, ps.y, 0.42);
-            const tryZ = this._resolveCollisions(prevX, rawZ, ps.y, 0.42);
-            if (this._getSurfaceInfoAt(tryX.x, prevZ).groundY - surfInfoBefore.groundY <= 0.72) {
+            const tryX = this._resolveCollisions(rawX, prevZ, ps.y, 0.28);
+            const tryZ = this._resolveCollisions(prevX, rawZ, ps.y, 0.28);
+            if (this._getSurfaceInfoAt(tryX.x, prevZ, Boolean(ps.onBridgeId)).groundY - surfInfoBefore.groundY <= 0.72) {
               nextX = tryX.x;
               nextZ = prevZ;
-            } else if (this._getSurfaceInfoAt(prevX, tryZ.z).groundY - surfInfoBefore.groundY <= 0.72) {
+            } else if (this._getSurfaceInfoAt(prevX, tryZ.z, Boolean(ps.onBridgeId)).groundY - surfInfoBefore.groundY <= 0.72) {
               nextX = prevX;
               nextZ = tryZ.z;
             } else {
@@ -5580,7 +6035,7 @@
         ps.dir = nextDir;
       }
 
-      const surf = this._getSurfaceInfoAt(ps.x, ps.z);
+      const surf = this._getSurfaceInfoAt(ps.x, ps.z, Boolean(ps.onBridgeId));
       ps.onWater = surf.onWater;
       ps.groundY += (surf.groundY - ps.groundY) * Math.min(1, dt * 16);
 
@@ -5591,10 +6046,12 @@
           ps.y = surf.groundY;
           ps.vy = 0;
           ps.onGround = true;
+          ps.jumpedFromWater = false;
           ps.doubleJumped = false;
           this._spawnPantherFX(10, surf.onWater ? ["#ffffff", "#7dd3fc"] : ["#fde68a", "#ffffff"], 0.15);
         }
       } else {
+        ps.jumpedFromWater = false;
         ps.y = ps.groundY;
       }
 
@@ -5737,6 +6194,7 @@
       }
 
       this.panther.surfboard.visible = ps.onWater;
+      this.panther.surfboard.position.y = ps.onWater ? -0.1 : 0;
       this.panther.surfboard.rotation.y = ps.faceAngle;
       this.panther.surfboard.rotation.z = Math.sin(this.clockTime * 3.2) * 0.06;
 
@@ -5752,9 +6210,9 @@
               opacity: 0.65,
               side: THREE.DoubleSide
             });
-            const wRing = new THREE.Mesh(new THREE.RingGeometry(0.32, 0.52, 16), wMat);
+            const wRing = new THREE.Mesh(new THREE.RingGeometry(0.22, 0.36, 16), wMat);
             wRing.rotation.x = -Math.PI / 2;
-            wRing.position.set(ps.x - ps.faceX * 0.85, surf.groundY + 0.05, ps.z - ps.faceZ * 0.85);
+            wRing.position.set(ps.x - ps.faceX * 0.52, surf.groundY + 0.05, ps.z - ps.faceZ * 0.52);
             this.scene.add(wRing);
             this.wakeRings.push({ mesh: wRing, mat: wMat, life: 0.85 });
           } else if (sprinting) {
@@ -5764,12 +6222,13 @@
       }
 
       const bob = ps.action.type === "dance" ? Math.abs(Math.sin(this.clockTime * 11)) * 0.32 : ps.onWater && ps.onGround ? Math.sin(this.clockTime * 3.5) * 0.06 : 0;
-      this.panther.group.position.set(ps.x, ps.y + bob, ps.z);
+      const surfLift = ps.onWater ? 0.14 : 0;
+      this.panther.group.position.set(ps.x, ps.y + bob + surfLift, ps.z);
       if (mode === "sprite") {
         this.panther.spriteHolder.lookAt(this.camera.position.x, this.panther.group.position.y, this.camera.position.z);
       }
       if (this.panther.emoteSprite && this.panther.emoteSprite.visible) {
-        this.panther.emoteSprite.position.y = mode === "sprite" ? 5.2 : mode === "glb" ? 4.35 : 3.45;
+        this.panther.emoteSprite.position.y = mode === "sprite" ? 2.85 : mode === "glb" ? 2.45 : 2.1;
         this.panther.emoteSprite.lookAt(
           this.camera.position.x,
           this.panther.group.position.y + this.panther.emoteSprite.position.y,
@@ -5785,7 +6244,7 @@
 
       if ((moved || this.cameraMode === "follow") && this.controls && !this.isTweening) {
         const oldT = this.controls.target.clone();
-        const desiredT = new THREE.Vector3(ps.x, ps.y + 1.5, ps.z);
+        const desiredT = new THREE.Vector3(ps.x, ps.y + 0.95, ps.z);
         this.controls.target.lerp(desiredT, moved ? 0.22 : 0.12);
         const deltaT = this.controls.target.clone().sub(oldT);
         this.camera.position.add(deltaT);
@@ -6042,6 +6501,7 @@
         this.islandCats.clear();
         this.islandPaths.clear();
         this.decorationMeshes.clear();
+        if (this.intelMeshes) this.intelMeshes.clear();
         this._initThree();
         this.isWebGL = true;
         this.setAtmosphereMode(this.atmosphereMode);
