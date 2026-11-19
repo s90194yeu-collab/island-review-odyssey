@@ -43,10 +43,31 @@
   let adminGallerySex = "m";
   let adminSubjectIdx = 0;
   let nearIslandRef = null;
+  let pomodoroMins = 25;
   let pomodoroSecs = 25 * 60;
+  let pomodoroTotalSecs = 25 * 60;
+  let pomodoroPhase = "focus";
   let pomodoroTimerId = null;
   let pomodoroTargetNodeId = null;
+  let focusDistractions = 0;
+  let focusOverlayOpen = false;
   let lastDanceRewardAt = 0;
+
+  let activeLifeState = null;
+  const activityCooldownAt = {};
+
+  const BGM_TRACKS = {
+    island_day: { id: "island_day", label: "晴空海島", src: "assets/audio/bgm_island_day.m4a?v=10" },
+    cafe_chill: { id: "cafe_chill", label: "海風咖啡", src: "assets/audio/bgm_cafe_chill.m4a?v=10" },
+    focus_lofi: { id: "focus_lofi", label: "深度 Lo-Fi", src: "assets/audio/bgm_focus_lofi.m4a?v=10" },
+    night_study: { id: "night_study", label: "夜讀星海", src: "assets/audio/bgm_night_study.m4a?v=10" }
+  };
+  const BGM_TRACK_ORDER = ["auto", "island_day", "cafe_chill", "focus_lofi", "night_study"];
+  const bgmPlayers = {};
+  let currentBgmTrackId = null;
+  let bgmFadeInterval = null;
+  let audioUnlocked = false;
+  let sfxAudioCtx = null;
 
   /* ==================== 自訂複習日與情報收集輔助 ==================== */
   function makeDayEntryForDate(dateStr, examStartIso, isExtra = false) {
@@ -227,6 +248,17 @@
       unlockedAchievements: [],
       pantherSex: "m",
       gasUrl: (DATA.meta && DATA.meta.defaultGasUrl) || "",
+      audio: {
+        enabled: true,
+        volume: 0.38,
+        manualTrack: "auto"
+      },
+      lifeStats: {
+        focusCompleted: 0,
+        focusMinutes: 0,
+        fishCaught: 0,
+        activitiesDone: {}
+      },
       catStats: {
         hearts: catHearts,
         quoteIdx: catQuoteIdx,
@@ -318,6 +350,24 @@
           ...parsed.catStats,
           hearts: { ...base.catStats.hearts, ...(parsed.catStats.hearts || {}) },
           quoteIdx: { ...base.catStats.quoteIdx, ...(parsed.catStats.quoteIdx || {}) }
+        };
+      }
+      if (parsed.audio && typeof parsed.audio === "object") {
+        base.audio = {
+          enabled: parsed.audio.enabled !== false,
+          volume: typeof parsed.audio.volume === "number" ? Math.max(0, Math.min(1, parsed.audio.volume)) : 0.38,
+          manualTrack: typeof parsed.audio.manualTrack === "string" ? parsed.audio.manualTrack : "auto"
+        };
+      }
+      if (parsed.lifeStats && typeof parsed.lifeStats === "object") {
+        base.lifeStats = {
+          focusCompleted: Number(parsed.lifeStats.focusCompleted) || 0,
+          focusMinutes: Number(parsed.lifeStats.focusMinutes) || 0,
+          fishCaught: Number(parsed.lifeStats.fishCaught) || 0,
+          activitiesDone:
+            parsed.lifeStats.activitiesDone && typeof parsed.lifeStats.activitiesDone === "object"
+              ? { ...parsed.lifeStats.activitiesDone }
+              : {}
         };
       }
     } catch (err) {
@@ -565,18 +615,361 @@
     return streak;
   }
 
+  /* ==================== 4 軌情境交叉淡入音樂與 Web Audio 音效 ==================== */
+  function getDesiredBgmTrack() {
+    if (!state.audio || !state.audio.enabled) return null;
+    const manual = state.audio.manualTrack || "auto";
+    if (manual !== "auto" && BGM_TRACKS[manual]) return manual;
+    if (pomodoroTimerId && pomodoroPhase === "focus") return "focus_lofi";
+    if (pomodoroTimerId && pomodoroPhase === "break") return "cafe_chill";
+    if (activeLifeState && activeLifeState.act) {
+      const t = activeLifeState.act.type;
+      if (t === "study") return "focus_lofi";
+      if (t === "cafe" || t === "lounge" || t === "fishing") return "cafe_chill";
+    }
+    const atmo = (state.catStats && state.catStats.atmosphere) || "day";
+    if (atmo === "sunset") return "cafe_chill";
+    if (atmo === "night") return "night_study";
+    return "island_day";
+  }
+
+  function getOrCreateBgmPlayer(trackId) {
+    if (bgmPlayers[trackId]) return bgmPlayers[trackId];
+    const meta = BGM_TRACKS[trackId];
+    if (!meta || typeof Audio !== "function") return null;
+    try {
+      const audio = new Audio(meta.src);
+      audio.loop = true;
+      audio.preload = "none";
+      audio.volume = 0;
+      bgmPlayers[trackId] = audio;
+      return audio;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function updateAudioControlsUI() {
+    const enabled = Boolean(state.audio && state.audio.enabled);
+    const want = getDesiredBgmTrack() || "island_day";
+    const meta = BGM_TRACKS[want] || BGM_TRACKS.island_day;
+    const hudBtn = document.getElementById("hud-audio-btn");
+    const hudIcon = document.getElementById("hud-audio-icon");
+    const hudText = document.getElementById("hud-audio-text");
+    if (hudBtn) hudBtn.classList.toggle("is-muted", !enabled);
+    if (hudIcon) hudIcon.textContent = enabled ? "🔊" : "🔇";
+    if (hudText) hudText.textContent = enabled ? meta.label : "靜音中";
+
+    const trackBtn = document.getElementById("focus-audio-track-btn");
+    if (trackBtn) {
+      const m = (state.audio && state.audio.manualTrack) || "auto";
+      trackBtn.textContent = m === "auto"
+        ? `🎵 曲目：自動 (${meta.label})`
+        : `🎵 曲目：${(BGM_TRACKS[m] && BGM_TRACKS[m].label) || m}`;
+    }
+    const muteBtn = document.getElementById("focus-mute-btn");
+    if (muteBtn) muteBtn.textContent = enabled ? "🔊 音樂開啟" : "🔇 已靜音";
+    const slider = document.getElementById("focus-volume-slider");
+    if (slider && state.audio) slider.value = String(Math.round((state.audio.volume || 0.38) * 100));
+  }
+
+  function syncBgmTrack() {
+    updateAudioControlsUI();
+    const wantId = getDesiredBgmTrack();
+    const targetVol = state.audio && typeof state.audio.volume === "number" ? state.audio.volume : 0.38;
+
+    if (!wantId) {
+      if (bgmFadeInterval) {
+        clearInterval(bgmFadeInterval);
+        bgmFadeInterval = null;
+      }
+      currentBgmTrackId = null;
+      Object.keys(bgmPlayers).forEach((k) => {
+        try {
+          bgmPlayers[k].volume = 0;
+          bgmPlayers[k].pause();
+        } catch (e) {}
+      });
+      return;
+    }
+
+    if (!audioUnlocked) return;
+    const targetPlayer = getOrCreateBgmPlayer(wantId);
+    if (!targetPlayer) return;
+
+    if (wantId === currentBgmTrackId) {
+      if (!bgmFadeInterval) targetPlayer.volume = targetVol;
+      if (targetPlayer.paused) {
+        const p = targetPlayer.play();
+        if (p && typeof p.catch === "function") p.catch(() => {});
+      }
+      return;
+    }
+
+    currentBgmTrackId = wantId;
+    if (bgmFadeInterval) clearInterval(bgmFadeInterval);
+
+    const starts = {};
+    Object.keys(bgmPlayers).forEach((k) => {
+      starts[k] = bgmPlayers[k].volume || 0;
+    });
+    if (!(wantId in starts)) starts[wantId] = 0;
+
+    if (targetPlayer.paused) {
+      const p = targetPlayer.play();
+      if (p && typeof p.catch === "function") p.catch(() => {});
+    }
+
+    let step = 0;
+    const steps = 20;
+    bgmFadeInterval = setInterval(() => {
+      step += 1;
+      const ratio = step / steps;
+      Object.keys(bgmPlayers).forEach((k) => {
+        const pl = bgmPlayers[k];
+        if (!pl) return;
+        const v0 = starts[k] || 0;
+        if (k === wantId) {
+          pl.volume = Math.max(0, Math.min(1, v0 + (targetVol - v0) * ratio));
+        } else {
+          pl.volume = Math.max(0, Math.min(1, v0 * (1 - ratio)));
+          if (step >= steps) {
+            pl.volume = 0;
+            try {
+              pl.pause();
+            } catch (e) {}
+          }
+        }
+      });
+      if (step >= steps) {
+        clearInterval(bgmFadeInterval);
+        bgmFadeInterval = null;
+      }
+    }, 45);
+  }
+
+  function playSfx(kind) {
+    if (state.audio && !state.audio.enabled) return;
+    try {
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      if (!Ctx) return;
+      if (!sfxAudioCtx) sfxAudioCtx = new Ctx();
+      if (sfxAudioCtx.state === "suspended") sfxAudioCtx.resume().catch(() => {});
+      const now = sfxAudioCtx.currentTime;
+      const tone = (freq, start, dur, vol = 0.08, type = "sine") => {
+        const osc = sfxAudioCtx.createOscillator();
+        const gain = sfxAudioCtx.createGain();
+        osc.type = type;
+        osc.frequency.setValueAtTime(freq, now + start);
+        gain.gain.setValueAtTime(0.001, now + start);
+        gain.gain.exponentialRampToValueAtTime(vol, now + start + 0.015);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + start + dur);
+        osc.connect(gain);
+        gain.connect(sfxAudioCtx.destination);
+        osc.start(now + start);
+        osc.stop(now + start + dur + 0.02);
+      };
+      if (kind === "splash") {
+        tone(740, 0, 0.09, 0.09, "triangle");
+        tone(987, 0.09, 0.14, 0.1, "triangle");
+      } else if (kind === "catch") {
+        tone(523.25, 0, 0.1, 0.08);
+        tone(659.25, 0.08, 0.1, 0.08);
+        tone(783.99, 0.16, 0.12, 0.09);
+        tone(1046.5, 0.25, 0.22, 0.1);
+      } else if (kind === "complete") {
+        tone(523.25, 0, 0.18, 0.09);
+        tone(659.25, 0.15, 0.18, 0.09);
+        tone(783.99, 0.3, 0.2, 0.09);
+        tone(1046.5, 0.45, 0.38, 0.11);
+      } else {
+        tone(620, 0, 0.06, 0.05);
+      }
+    } catch (e) {}
+  }
+
+  /* ==================== 深度灰階專注番茄鐘系統 ==================== */
+  function populateFocusNodeSelect() {
+    const sel = document.getElementById("focus-node-select");
+    if (!sel) return;
+    const prev = pomodoroTargetNodeId || "";
+    const opts = ['<option value="">🌱 自由複習（不指定單元）</option>'];
+    DATA.islands.forEach((isl) => {
+      isl.nodes.forEach((n) => {
+        const title = (state.nodeProgress[n.id] && state.nodeProgress[n.id].customTitle) || n.title;
+        opts.push(`<option value="${n.id}">${escapeHtml(isl.subject)} · ${escapeHtml(n.code)} ${escapeHtml(title)}</option>`);
+      });
+    });
+    sel.innerHTML = opts.join("");
+    sel.value = prev;
+  }
+
   function updatePomodoroDisplay() {
-    const btn = document.getElementById("pomodoro-btn");
-    if (!btn) return;
     const mins = String(Math.floor(pomodoroSecs / 60)).padStart(2, "0");
     const secs = String(pomodoroSecs % 60).padStart(2, "0");
-    btn.classList.toggle("is-running", Boolean(pomodoroTimerId));
+    const isFocusRunning = Boolean(pomodoroTimerId && pomodoroPhase === "focus");
+    const isBreakRunning = Boolean(pomodoroTimerId && pomodoroPhase === "break");
+    const found = pomodoroTargetNodeId ? findNode(pomodoroTargetNodeId) : null;
+
+    const btn = document.getElementById("pomodoro-btn");
+    if (btn) {
+      btn.classList.toggle("is-running", Boolean(pomodoroTimerId));
+      if (isBreakRunning) {
+        btn.textContent = `☕ 休息 ${mins}:${secs}`;
+      } else if (isFocusRunning) {
+        const tag = found ? `${found.island.subject}${found.node.code}` : "專注中";
+        btn.textContent = `🍅 ${tag} ${mins}:${secs}`;
+      } else {
+        btn.textContent = `🍅 ${mins}:${secs} 專注`;
+      }
+    }
+
+    const clockEl = document.getElementById("focus-clock-text");
+    if (clockEl) clockEl.textContent = `${mins}:${secs}`;
+    const ringEl = document.getElementById("focus-ring-fg");
+    if (ringEl) {
+      const circ = 603.19;
+      const ratio = Math.max(0, Math.min(1, pomodoroSecs / Math.max(pomodoroTotalSecs, 1)));
+      ringEl.style.strokeDashoffset = String((circ * (1 - ratio)).toFixed(2));
+    }
+    const badgeEl = document.getElementById("focus-phase-badge");
+    if (badgeEl) {
+      badgeEl.classList.toggle("is-break", pomodoroPhase === "break");
+      badgeEl.textContent = pomodoroPhase === "break" ? "☕ 5 分鐘大腦休息中" : isFocusRunning ? "🍅 深度專注鎖定中" : "🍅 深度專注模式";
+    }
+    const tgtLabel = document.getElementById("focus-target-label");
+    if (tgtLabel) {
+      tgtLabel.textContent = pomodoroPhase === "break" ? "放鬆喝水伸展一下" : found ? `${found.island.subject} · ${found.node.code}` : "自由複習衝刺";
+    }
+    const distEl = document.getElementById("focus-distract-text");
+    if (distEl) {
+      distEl.classList.toggle("has-distract", focusDistractions > 0);
+      distEl.textContent = focusDistractions > 0 ? `👀 切換分頁：${focusDistractions} 次` : "✨ 零分心專注保持中";
+    }
+    const startBtn = document.getElementById("focus-start-pause-btn");
+    if (startBtn) {
+      startBtn.textContent = pomodoroTimerId ? "⏸ 暫停倒數" : pomodoroSecs < pomodoroTotalSecs ? "▶ 繼續專注" : "▶ 開始深度專注";
+    }
+    document.querySelectorAll(".focus-dur-btn").forEach((b) => {
+      const m = Number(b.dataset.mins);
+      b.classList.toggle("is-active", pomodoroPhase === "focus" && m === pomodoroMins);
+      b.disabled = Boolean(pomodoroTimerId);
+    });
+    const nodeSel = document.getElementById("focus-node-select");
+    if (nodeSel) nodeSel.disabled = Boolean(pomodoroTimerId);
+
+    const deepGray = Boolean(isFocusRunning && focusOverlayOpen);
+    document.body.classList.toggle("is-focus-mode", deepGray);
+    if (sceneManager && typeof sceneManager.setFocusMode === "function") {
+      sceneManager.setFocusMode(deepGray);
+    }
+  }
+
+  function startFocusCountdown() {
+    audioUnlocked = true;
+    if (pomodoroTimerId) clearInterval(pomodoroTimerId);
+    document.getElementById("focus-break-btn")?.classList.add("is-hidden");
+
+    pomodoroTimerId = setInterval(() => {
+      pomodoroSecs -= 1;
+      if (pomodoroSecs <= 0) {
+        clearInterval(pomodoroTimerId);
+        pomodoroTimerId = null;
+
+        if (pomodoroPhase === "focus") {
+          const baseReward = pomodoroMins >= 45 ? 8 : pomodoroMins >= 25 ? 4 : 2;
+          const bonusZero = focusDistractions === 0 ? 1 : 0;
+          const totalFish = baseReward + bonusZero;
+          pomodoroSecs = pomodoroMins * 60;
+          pomodoroTotalSecs = pomodoroSecs;
+          state.catStats.bonusFish = (state.catStats.bonusFish || 0) + totalFish;
+          if (!state.lifeStats) state.lifeStats = { focusCompleted: 0, focusMinutes: 0, fishCaught: 0, activitiesDone: {} };
+          state.lifeStats.focusCompleted = (state.lifeStats.focusCompleted || 0) + 1;
+          state.lifeStats.focusMinutes = (state.lifeStats.focusMinutes || 0) + pomodoroMins;
+          if (pomodoroTargetNodeId) {
+            state.nodePomodoros[pomodoroTargetNodeId] = (state.nodePomodoros[pomodoroTargetNodeId] || 0) + 1;
+          }
+          saveState();
+          renderGlobalHUD();
+          if (activeIslandId) {
+            renderIslandPanel(findIsland(activeIslandId), null, true);
+            if (sceneManager) sceneManager.triggerCatCelebration(activeIslandId);
+          }
+          if (sceneManager) sceneManager.doPantherAction("cheer");
+          playSfx("complete");
+          document.getElementById("focus-break-btn")?.classList.remove("is-hidden");
+          showToast(
+            `🍅 ${pomodoroMins} 分鐘專注達成！獲得 +${totalFish} 🐟${bonusZero ? "（含零分心獎勵 +1 🐟）" : ""}，建議休息 5 分鐘！`
+          );
+        } else {
+          pomodoroPhase = "focus";
+          pomodoroSecs = pomodoroMins * 60;
+          pomodoroTotalSecs = pomodoroSecs;
+          document.getElementById("focus-break-btn")?.classList.add("is-hidden");
+          playSfx("catch");
+          showToast("☕ 5 分鐘休息結束，恢復色彩＆活力迎接下一段衝刺！");
+        }
+        syncBgmTrack();
+      }
+      updatePomodoroDisplay();
+    }, 1000);
+
+    updatePomodoroDisplay();
+    syncBgmTrack();
+  }
+
+  function pauseFocusCountdown() {
+    if (!pomodoroTimerId) return;
+    clearInterval(pomodoroTimerId);
+    pomodoroTimerId = null;
+    updatePomodoroDisplay();
+    syncBgmTrack();
+    showToast("⏸ 已暫停計時，畫面恢復彩色");
+  }
+
+  function resetFocusCountdown() {
     if (pomodoroTimerId) {
-      const found = pomodoroTargetNodeId ? findNode(pomodoroTargetNodeId) : null;
-      const tag = found ? `${found.island.subject}${found.node.code}` : "專注中";
-      btn.textContent = `🍅 ${tag} ${mins}:${secs}`;
+      clearInterval(pomodoroTimerId);
+      pomodoroTimerId = null;
+    }
+    pomodoroPhase = "focus";
+    focusDistractions = 0;
+    pomodoroTotalSecs = pomodoroMins * 60;
+    pomodoroSecs = pomodoroTotalSecs;
+    document.getElementById("focus-break-btn")?.classList.add("is-hidden");
+    updatePomodoroDisplay();
+    syncBgmTrack();
+  }
+
+  function startBreakCountdown() {
+    if (pomodoroTimerId) clearInterval(pomodoroTimerId);
+    pomodoroTimerId = null;
+    pomodoroPhase = "break";
+    pomodoroTotalSecs = 5 * 60;
+    pomodoroSecs = 5 * 60;
+    startFocusCountdown();
+    showToast("☕ 開始 5 分鐘大腦休息（畫面恢復彩色＋播放咖啡輕音樂）");
+  }
+
+  function openFocusOverlay(autoStart = false) {
+    focusOverlayOpen = true;
+    populateFocusNodeSelect();
+    document.getElementById("focus-overlay")?.classList.add("is-open");
+    if (autoStart && !pomodoroTimerId) {
+      startFocusCountdown();
     } else {
-      btn.textContent = `🍅 ${mins}:${secs} 專注`;
+      updatePomodoroDisplay();
+      syncBgmTrack();
+    }
+  }
+
+  function minimizeFocusOverlay() {
+    focusOverlayOpen = false;
+    document.getElementById("focus-overlay")?.classList.remove("is-open");
+    updatePomodoroDisplay();
+    syncBgmTrack();
+    if (pomodoroTimerId) {
+      showToast("🍅 番茄鐘已縮小至頂部繼續倒數（背景運行中）");
     }
   }
 
@@ -586,41 +979,175 @@
       clearInterval(pomodoroTimerId);
       pomodoroTimerId = null;
     }
-    pomodoroSecs = 25 * 60;
-    togglePomodoro();
+    pomodoroPhase = "focus";
+    pomodoroMins = 25;
+    pomodoroTotalSecs = 25 * 60;
+    pomodoroSecs = pomodoroTotalSecs;
+    focusDistractions = 0;
+    const found = findNode(nodeId);
+    openFocusOverlay(true);
+    showToast(found ? `🍅 已為「${found.island.subject} ${found.node.code}」啟動深度灰階專注！` : "🍅 已啟動深度專注番茄鐘！");
   }
 
   function togglePomodoro() {
-    if (pomodoroTimerId) {
-      clearInterval(pomodoroTimerId);
-      pomodoroTimerId = null;
-      updatePomodoroDisplay();
-      showToast("⏸️ 已暫停番茄鐘計時，隨時可再繼續！");
+    openFocusOverlay(false);
+  }
+
+  /* ==================== 島嶼生活互動站 ＆ 釣魚小遊戲 ==================== */
+  function findLifeActivity(activityId) {
+    const list = (DATA && DATA.lifeActivities) || [];
+    return list.find((a) => a.id === activityId) || null;
+  }
+
+  function renderLifeActionBar() {
+    const bar = document.getElementById("life-action-bar");
+    if (!bar) return;
+    if (!activeLifeState || !activeLifeState.act) {
+      bar.classList.remove("is-open");
       return;
     }
-    const found = pomodoroTargetNodeId ? findNode(pomodoroTargetNodeId) : null;
-    pomodoroTimerId = setInterval(() => {
-      pomodoroSecs -= 1;
-      if (pomodoroSecs <= 0) {
-        clearInterval(pomodoroTimerId);
-        pomodoroTimerId = null;
-        pomodoroSecs = 25 * 60;
-        state.catStats.bonusFish = (state.catStats.bonusFish || 0) + 3;
-        if (pomodoroTargetNodeId) {
-          state.nodePomodoros[pomodoroTargetNodeId] = (state.nodePomodoros[pomodoroTargetNodeId] || 0) + 1;
+    const { act, phase, statusMsg } = activeLifeState;
+    const emojiEl = document.getElementById("life-action-emoji");
+    const titleEl = document.getElementById("life-action-title");
+    const statusEl = document.getElementById("life-action-status");
+    const reelBtn = document.getElementById("fishing-reel-btn");
+    const againBtn = document.getElementById("fishing-again-btn");
+    const focusBtn = document.getElementById("life-start-focus-btn");
+
+    if (emojiEl) emojiEl.textContent = act.emoji || "🐾";
+    if (titleEl) titleEl.textContent = act.name;
+    if (statusEl) statusEl.textContent = statusMsg || act.emote || act.desc;
+    if (reelBtn) reelBtn.classList.toggle("is-hidden", !(act.type === "fishing" && phase === "bite"));
+    if (againBtn) againBtn.classList.toggle("is-hidden", !(act.type === "fishing" && (phase === "caught" || phase === "missed")));
+    if (focusBtn) focusBtn.classList.toggle("is-hidden", act.type !== "study");
+    bar.classList.add("is-open");
+  }
+
+  function stopLifeActivityUI(fromScene = false) {
+    if (activeLifeState) {
+      if (activeLifeState.timerId) clearTimeout(activeLifeState.timerId);
+      if (activeLifeState.biteWindowId) clearTimeout(activeLifeState.biteWindowId);
+      activeLifeState = null;
+    }
+    if (!fromScene && sceneManager && typeof sceneManager.stopPantherActivity === "function") {
+      sceneManager.stopPantherActivity();
+    }
+    renderLifeActionBar();
+    syncBgmTrack();
+  }
+
+  function castFishingLine() {
+    if (!activeLifeState || activeLifeState.act.type !== "fishing") return;
+    if (activeLifeState.timerId) clearTimeout(activeLifeState.timerId);
+    if (activeLifeState.biteWindowId) clearTimeout(activeLifeState.biteWindowId);
+    if (sceneManager && typeof sceneManager.setFishingBite === "function") {
+      sceneManager.setFishingBite(false);
+    }
+    activeLifeState.phase = "waiting_bite";
+    activeLifeState.statusMsg = "🎣 甩竿下海囉！緊盯紅白浮標等待訊號…";
+    renderLifeActionBar();
+
+    const waitMs = 2200 + Math.round(Math.random() * 2400);
+    activeLifeState.timerId = setTimeout(() => {
+      if (!activeLifeState || activeLifeState.act.type !== "fishing") return;
+      activeLifeState.phase = "bite";
+      activeLifeState.statusMsg = "❗ 浮標下沉啦！快按「收竿」或空白鍵 (Space)！";
+      if (sceneManager && typeof sceneManager.setFishingBite === "function") {
+        sceneManager.setFishingBite(true);
+      }
+      playSfx("splash");
+      renderLifeActionBar();
+
+      activeLifeState.biteWindowId = setTimeout(() => {
+        if (!activeLifeState || activeLifeState.phase !== "bite") return;
+        activeLifeState.phase = "missed";
+        activeLifeState.statusMsg = "💨 哎呀慢了一步，魚群溜走了！可按「再拋一竿」";
+        if (sceneManager && typeof sceneManager.setFishingBite === "function") {
+          sceneManager.setFishingBite(false);
         }
+        renderLifeActionBar();
+      }, 2500);
+    }, waitMs);
+  }
+
+  function reelFishingCatch() {
+    if (!activeLifeState || activeLifeState.act.type !== "fishing" || activeLifeState.phase !== "bite") return;
+    if (activeLifeState.biteWindowId) clearTimeout(activeLifeState.biteWindowId);
+    if (sceneManager && typeof sceneManager.setFishingBite === "function") {
+      sceneManager.setFishingBite(false);
+    }
+    const r = Math.random();
+    const catchItem =
+      r < 0.08
+        ? { label: "🏆 黃金旗魚王", fish: 6 }
+        : r < 0.28
+          ? { label: "🐡 幸運刺河豚", fish: 4 }
+          : r < 0.72
+            ? { label: "🐠 繽紛島嶼鯛", fish: 3 }
+            : { label: "🐟 銀鱗鮮沙丁", fish: 2 };
+
+    state.catStats.bonusFish = (state.catStats.bonusFish || 0) + catchItem.fish;
+    if (!state.lifeStats) state.lifeStats = { focusCompleted: 0, focusMinutes: 0, fishCaught: 0, activitiesDone: {} };
+    state.lifeStats.fishCaught = (state.lifeStats.fishCaught || 0) + 1;
+    state.lifeStats.activitiesDone.fishing = (state.lifeStats.activitiesDone.fishing || 0) + 1;
+    saveState();
+    renderGlobalHUD();
+    playSfx("catch");
+    activeLifeState.phase = "caught";
+    activeLifeState.statusMsg = `🎉 釣獲【${catchItem.label}】！小魚乾 +${catchItem.fish} 🐟（累計釣魚 ${state.lifeStats.fishCaught} 條）`;
+    renderLifeActionBar();
+    showToast(`🎣 太棒了！釣到 ${catchItem.label}，獲得 +${catchItem.fish} 🐟 小魚乾！`);
+  }
+
+  function triggerLifeActivity(activityId) {
+    const act = findLifeActivity(activityId);
+    if (!act) return;
+    audioUnlocked = true;
+    stopLifeActivityUI(true);
+
+    if (sceneManager && typeof sceneManager.startPantherActivity === "function") {
+      sceneManager.startPantherActivity(activityId, act);
+    }
+    activeLifeState = {
+      activityId,
+      act,
+      phase: "running",
+      timerId: null,
+      biteWindowId: null,
+      statusMsg: act.emote || act.desc
+    };
+    syncBgmTrack();
+
+    if (act.type === "fishing") {
+      castFishingLine();
+      return;
+    }
+
+    const now = Date.now();
+    const lastAt = activityCooldownAt[act.type] || 0;
+    const rewardReady = now - lastAt >= 12000;
+    activeLifeState.statusMsg = rewardReady
+      ? `${act.emote}（稍候片刻即可獲得 +${act.fishReward || 1} 🐟）`
+      : `${act.emote}（愜意體驗中～）`;
+    renderLifeActionBar();
+
+    if (rewardReady) {
+      const waitMs = Math.min(Number(act.durationSec) || 5, 5) * 1000;
+      activeLifeState.timerId = setTimeout(() => {
+        if (!activeLifeState || activeLifeState.activityId !== activityId) return;
+        activityCooldownAt[act.type] = Date.now();
+        const gain = Number(act.fishReward) || 1;
+        state.catStats.bonusFish = (state.catStats.bonusFish || 0) + gain;
+        if (!state.lifeStats) state.lifeStats = { focusCompleted: 0, focusMinutes: 0, fishCaught: 0, activitiesDone: {} };
+        state.lifeStats.activitiesDone[act.type] = (state.lifeStats.activitiesDone[act.type] || 0) + 1;
         saveState();
         renderGlobalHUD();
-        if (activeIslandId) {
-          renderIslandPanel(findIsland(activeIslandId), null, true);
-          if (sceneManager) sceneManager.triggerCatCelebration(activeIslandId);
-        }
-        showToast("🍅 25 分鐘番茄鐘完成！獲得 +3 🐟 小魚乾，記得喝口水休息一下！");
-      }
-      updatePomodoroDisplay();
-    }, 1000);
-    updatePomodoroDisplay();
-    showToast(found ? `🍅 已為「${found.island.subject} ${found.node.code}」啟動 25 分鐘專注！` : "🍅 已啟動 25 分鐘專注番茄鐘！");
+        playSfx("catch");
+        activeLifeState.statusMsg = `✨ 體驗完成！獲得 +${gain} 🐟 小魚乾，可隨時起身或繼續放鬆`;
+        renderLifeActionBar();
+        showToast(`${act.emoji} 完成「${act.name}」！獲得 +${gain} 🐟 小魚乾！`);
+      }, waitMs);
+    }
   }
 
   function renderGlobalHUD() {
@@ -3417,7 +3944,9 @@
         } else {
           banner.classList.remove("is-visible");
         }
-      }
+      },
+      onTriggerActivity: (activityId) => triggerLifeActivity(activityId),
+      onStopActivity: () => stopLifeActivityUI(true)
     });
     window.sceneManager = sceneManager;
     sceneManager.pantherState.sex = state.pantherSex || "m";
@@ -3430,6 +3959,8 @@
     }
 
     renderGlobalHUD();
+    updateAudioControlsUI();
+    updatePomodoroDisplay();
     setTimeout(() => sceneManager && sceneManager.onResize(), 150);
     setTimeout(() => sceneManager && sceneManager.onResize(), 600);
 
@@ -3677,6 +4208,91 @@
       pomoBtn.addEventListener("click", togglePomodoro);
     }
 
+    // BGM 解鎖與音訊／專注／生活互動事件綁定
+    const unlockAudioOnce = () => {
+      if (audioUnlocked) return;
+      audioUnlocked = true;
+      syncBgmTrack();
+    };
+    window.addEventListener("pointerdown", unlockAudioOnce, { once: true, passive: true });
+    window.addEventListener("keydown", unlockAudioOnce, { once: true, passive: true });
+
+    const toggleAudioEnabled = () => {
+      audioUnlocked = true;
+      if (!state.audio) state.audio = { enabled: true, volume: 0.38, manualTrack: "auto" };
+      state.audio.enabled = !state.audio.enabled;
+      saveState();
+      syncBgmTrack();
+      showToast(state.audio.enabled ? "🔊 已開啟海島情境背景音樂" : "🔇 已切換為靜音模式");
+    };
+    document.getElementById("hud-audio-btn")?.addEventListener("click", toggleAudioEnabled);
+    document.getElementById("focus-mute-btn")?.addEventListener("click", toggleAudioEnabled);
+
+    document.getElementById("focus-audio-track-btn")?.addEventListener("click", () => {
+      audioUnlocked = true;
+      if (!state.audio) state.audio = { enabled: true, volume: 0.38, manualTrack: "auto" };
+      const cur = state.audio.manualTrack || "auto";
+      const next = BGM_TRACK_ORDER[(BGM_TRACK_ORDER.indexOf(cur) + 1) % BGM_TRACK_ORDER.length];
+      state.audio.manualTrack = next;
+      state.audio.enabled = true;
+      saveState();
+      syncBgmTrack();
+    });
+
+    document.getElementById("focus-volume-slider")?.addEventListener("input", (e) => {
+      audioUnlocked = true;
+      if (!state.audio) state.audio = { enabled: true, volume: 0.38, manualTrack: "auto" };
+      state.audio.volume = Math.max(0, Math.min(1, Number(e.target.value) / 100));
+      saveState();
+      syncBgmTrack();
+    });
+
+    document.getElementById("focus-start-pause-btn")?.addEventListener("click", () => {
+      if (pomodoroTimerId) pauseFocusCountdown();
+      else startFocusCountdown();
+    });
+    document.getElementById("focus-reset-btn")?.addEventListener("click", resetFocusCountdown);
+    document.getElementById("focus-break-btn")?.addEventListener("click", startBreakCountdown);
+    document.getElementById("focus-minimize-btn")?.addEventListener("click", minimizeFocusOverlay);
+
+    document.querySelectorAll(".focus-dur-btn").forEach((b) => {
+      b.addEventListener("click", () => {
+        if (pomodoroTimerId) return;
+        const mins = Number(b.dataset.mins);
+        if (![15, 25, 45].includes(mins)) return;
+        pomodoroPhase = "focus";
+        pomodoroMins = mins;
+        pomodoroTotalSecs = mins * 60;
+        pomodoroSecs = pomodoroTotalSecs;
+        focusDistractions = 0;
+        updatePomodoroDisplay();
+      });
+    });
+
+    document.getElementById("focus-node-select")?.addEventListener("change", (e) => {
+      if (pomodoroTimerId) return;
+      pomodoroTargetNodeId = e.target.value || null;
+      updatePomodoroDisplay();
+    });
+
+    document.addEventListener("visibilitychange", () => {
+      if (!pomodoroTimerId || pomodoroPhase !== "focus") return;
+      if (document.hidden) {
+        focusDistractions += 1;
+      } else {
+        updatePomodoroDisplay();
+        showToast(`👀 偵測到切換離開專注畫面（累計 ${focusDistractions} 次），回來繼續衝刺！`);
+      }
+    });
+
+    document.getElementById("fishing-reel-btn")?.addEventListener("click", reelFishingCatch);
+    document.getElementById("fishing-again-btn")?.addEventListener("click", castFishingLine);
+    document.getElementById("life-start-focus-btn")?.addEventListener("click", () => {
+      stopLifeActivityUI(false);
+      openFocusOverlay(true);
+    });
+    document.getElementById("life-stop-btn")?.addEventListener("click", () => stopLifeActivityUI(false));
+
     // Atmosphere Cycle Button
     const atmoBtn = document.getElementById("atmosphere-toggle-btn");
     if (atmoBtn) {
@@ -3688,6 +4304,7 @@
         saveState();
         updateAtmosphereButton();
         sceneManager.setAtmosphereMode(next);
+        syncBgmTrack();
       });
     }
 
@@ -3705,6 +4322,14 @@
     window.addEventListener("keydown", (e) => {
       const tag = (e.target && e.target.tagName) || "";
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+      const focusEl = document.getElementById("focus-overlay");
+      if (focusEl && focusEl.classList.contains("is-open")) {
+        if (e.key === "Escape") {
+          e.preventDefault();
+          minimizeFocusOverlay();
+        }
+        return;
+      }
       if (document.querySelector(".modal-overlay.is-open")) return;
 
       const norm = normalizeKeyCode(e);
@@ -3715,6 +4340,10 @@
         syncPantherInput();
       } else if (e.code === "Space" || k === " ") {
         e.preventDefault();
+        if (activeLifeState && activeLifeState.act.type === "fishing" && activeLifeState.phase === "bite") {
+          reelFishingCatch();
+          return;
+        }
         sceneManager.jumpPanther();
       } else if (e.code === "KeyQ" || k === "q") {
         e.preventDefault();

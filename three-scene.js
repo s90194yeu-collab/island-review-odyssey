@@ -758,6 +758,11 @@
       this.colliders = [];
       this.landmarkGroups = new Map();
       this.campusBoards = new Map();
+      this.activityStations = new Map();
+      this.activeActivity = null;
+      this.fishingBiteActive = false;
+      this.focusModeActive = false;
+      this._focusSavedPose = null;
       this._buildStarField();
       this._buildOcean();
       this._buildClouds();
@@ -767,6 +772,7 @@
       this._buildRadiatingBridges();
       this._buildDecorationsPool();
       this._buildIntelCollectibles((window.ISLAND_DATA && window.ISLAND_DATA.intelItems) || []);
+      this._buildLifeActivities((window.ISLAND_DATA && window.ISLAND_DATA.lifeActivities) || []);
       this._buildBoat();
       this._buildWalkerCat();
       this._buildPanther();
@@ -1596,6 +1602,51 @@
             finish();
           });
           setTimeout(finish, 3000);
+        });
+      });
+
+      const actModelMeta = new Map();
+      if (this.activityStations) {
+        this.activityStations.forEach((st) => {
+          if (st && st.act && st.act.model && !actModelMeta.has(st.act.model)) {
+            actModelMeta.set(st.act.model, {
+              model: st.act.model,
+              url: `assets/${st.act.model}.glb?v=10`,
+              targetH: st.act.targetH || 1.85
+            });
+          }
+        });
+      }
+      actModelMeta.forEach((meta) => {
+        tasks.push((done) => {
+          let finished = false;
+          const finish = () => {
+            if (finished) return;
+            finished = true;
+            if (done) done();
+          };
+          this._loadPropGLB(meta.url, meta.targetH, "height", (base) => {
+            if (this.activityStations) {
+              this.activityStations.forEach((st) => {
+                if (!st || !st.act || st.act.model !== meta.model || !st.modelSlot) return;
+                this._clearGroupChildren(st.modelSlot);
+                const clone = base.clone();
+                clone.rotation.y = st.act.baseRotY || 0;
+                clone.traverse((n) => {
+                  if (n.isMesh) {
+                    n.userData = Object.assign({}, n.userData, {
+                      isActivity: true,
+                      activityId: st.act.id
+                    });
+                    this.clickTargets.push(n);
+                  }
+                });
+                st.modelSlot.add(clone);
+              });
+            }
+            finish();
+          });
+          setTimeout(finish, 3500);
         });
       });
 
@@ -2695,6 +2746,184 @@
           if (entry.isOcean) entry.coreMat.opacity = done ? 0.35 : 0.86;
         }
         if (entry.ringMesh) entry.ringMesh.visible = !done;
+      });
+    }
+
+    _buildLifeActivities(items) {
+      const THREE = window.THREE;
+      if (!this.activityStations) this.activityStations = new Map();
+      this.activityStations.clear();
+      if (!Array.isArray(items) || items.length === 0) return;
+
+      const paletteMap = {
+        study: "#f59e0b",
+        cafe: "#10b981",
+        fishing: "#0ea5e9",
+        lounge: "#f43f5e",
+        workout: "#8b5cf6"
+      };
+
+      items.forEach((item, idx) => {
+        let wx = 0;
+        let wz = 0;
+        if (item.worldPos) {
+          wx = item.worldPos.x;
+          wz = item.worldPos.z;
+        } else if (item.localPos) {
+          const isl = this.islandsData.find((i) => i.id === item.islandId);
+          if (!isl) return;
+          wx = isl.position.x + item.localPos.x;
+          wz = isl.position.z + item.localPos.z;
+        } else {
+          return;
+        }
+
+        const surf = this._getSurfaceInfoAt(wx, wz, false);
+        const groundY = surf.onWater ? 0.86 : surf.groundY;
+        const rotY = item.rotY || 0;
+        const fwdX = Math.sin(rotY);
+        const fwdZ = Math.cos(rotY);
+
+        const root = new THREE.Group();
+        root.position.set(wx, groundY, wz);
+        root.rotation.y = rotY;
+
+        const accent = paletteMap[item.type] || "#38bdf8";
+        const haloMat = new THREE.MeshBasicMaterial({
+          color: accent,
+          transparent: true,
+          opacity: 0.42,
+          side: THREE.DoubleSide,
+          depthWrite: false
+        });
+        const haloMesh = new THREE.Mesh(new THREE.RingGeometry(1.02, 1.32, 24), haloMat);
+        haloMesh.rotation.x = -Math.PI / 2;
+        haloMesh.position.y = 0.05;
+        root.add(haloMesh);
+
+        const markerMat = new THREE.MeshBasicMaterial({ color: accent });
+        const marker = new THREE.Mesh(new THREE.OctahedronGeometry(0.18, 0), markerMat);
+        marker.position.y = (item.targetH || 1.75) + 0.52;
+        root.add(marker);
+
+        const modelSlot = new THREE.Group();
+        // 載入 3D GLB 前先顯示簡約彩色備援道具，確保點擊與辨識立即可用
+        const woodMat = new THREE.MeshStandardMaterial({ color: "#d99b52", roughness: 0.65 });
+        const accentMat = new THREE.MeshStandardMaterial({ color: accent, roughness: 0.45 });
+        if (item.type === "fishing") {
+          const deck = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.14, 1.5), woodMat);
+          deck.position.y = 0.07;
+          const post = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.14, 0.72, 10), woodMat);
+          post.position.set(-0.42, 0.42, -0.35);
+          const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.22, 0.56, 10), accentMat);
+          barrel.position.set(0.35, 0.34, -0.32);
+          modelSlot.add(deck, post, barrel);
+        } else if (item.type === "lounge") {
+          const chair = new THREE.Mesh(new THREE.BoxGeometry(0.85, 0.28, 1.35), accentMat);
+          chair.position.y = 0.22;
+          const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.06, 1.7, 8), woodMat);
+          pole.position.set(-0.25, 0.9, -0.35);
+          const umbrella = new THREE.Mesh(new THREE.ConeGeometry(1.05, 0.42, 10), accentMat);
+          umbrella.position.set(-0.25, 1.78, -0.35);
+          modelSlot.add(chair, pole, umbrella);
+        } else if (item.type === "cafe") {
+          const counter = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.88, 0.78), woodMat);
+          counter.position.y = 0.44;
+          const roof = new THREE.Mesh(new THREE.BoxGeometry(1.52, 0.22, 0.96), accentMat);
+          roof.position.y = 1.75;
+          modelSlot.add(counter, roof);
+        } else if (item.type === "workout") {
+          const pad = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.1, 1.35), woodMat);
+          pad.position.y = 0.05;
+          const pL = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 1.75, 8), woodMat);
+          pL.position.set(-0.52, 0.9, -0.2);
+          const pR = pL.clone();
+          pR.position.x = 0.52;
+          const bar = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 1.12, 8), accentMat);
+          bar.rotation.z = Math.PI / 2;
+          bar.position.set(0, 1.68, -0.2);
+          modelSlot.add(pad, pL, pR, bar);
+        } else {
+          const desk = new THREE.Mesh(new THREE.BoxGeometry(1.25, 0.72, 0.74), woodMat);
+          desk.position.y = 0.36;
+          const book = new THREE.Mesh(new THREE.BoxGeometry(0.45, 0.09, 0.34), accentMat);
+          book.position.set(0, 0.76, 0.05);
+          modelSlot.add(desk, book);
+        }
+        root.add(modelSlot);
+
+        root.traverse((c) => {
+          if (c.isMesh) {
+            c.userData = { isActivity: true, activityId: item.id };
+            this.clickTargets.push(c);
+          }
+        });
+
+        this.scene.add(root);
+
+        let standX = wx + fwdX * 1.32;
+        let standZ = wz + fwdZ * 1.32;
+        let standFaceAngle = rotY + Math.PI;
+        if (item.type === "fishing") {
+          standX = wx - fwdX * 0.45;
+          standZ = wz - fwdZ * 0.45;
+          standFaceAngle = rotY;
+        } else if (item.type === "lounge") {
+          standX = wx + fwdX * 0.48;
+          standZ = wz + fwdZ * 0.48;
+          standFaceAngle = rotY;
+        }
+
+        if (item.type === "lounge") {
+          this._addCircleCollider(wx - fwdX * 0.55, wz - fwdZ * 0.55, 0.42, groundY + 2.5);
+        } else if (item.type !== "fishing") {
+          this._addCircleCollider(wx, wz, 0.72, groundY + 2.6);
+        }
+
+        this.activityStations.set(item.id, {
+          act: item,
+          root,
+          modelSlot,
+          haloMat,
+          haloMesh,
+          marker,
+          markerBaseY: (item.targetH || 1.75) + 0.52,
+          phase: idx * 0.75,
+          wx,
+          wz,
+          groundY,
+          standX,
+          standZ,
+          standFaceAngle
+        });
+
+        this.interactableSpots.push({
+          type: "activity",
+          kind: item.type,
+          activityId: item.id,
+          islandId: item.islandId,
+          label: item.name,
+          x: wx,
+          z: wz
+        });
+      });
+
+      this.ambientUpdaters.push((t) => {
+        if (!this.activityStations) return;
+        this.activityStations.forEach((st) => {
+          const isCur = this.activeActivity && this.activeActivity.id === st.act.id;
+          if (st.marker) {
+            st.marker.position.y = st.markerBaseY + Math.sin(t * 2.5 + st.phase) * 0.1;
+            st.marker.rotation.y = t * (isCur ? 2.8 : 1.1) + st.phase;
+          }
+          if (st.haloMat) {
+            st.haloMat.opacity = isCur ? 0.85 : 0.34 + Math.sin(t * 2.2 + st.phase) * 0.12;
+          }
+          if (st.haloMesh) {
+            const s = isCur ? 1.1 + Math.sin(t * 4) * 0.06 : 1.0;
+            st.haloMesh.scale.setScalar(s);
+          }
+        });
       });
     }
 
@@ -4615,6 +4844,129 @@
       this.scene.add(groundWalkPlane);
       this.groundWalkPlane = groundWalkPlane;
 
+      // Attached lightweight 3D props for Panther life activities (aligned via root.rotation.y = faceAngle)
+      const activityPropsRoot = new THREE.Group();
+      group.add(activityPropsRoot);
+
+      // 1) Study prop: Open notebook + golden bookmark held in front
+      const propStudy = new THREE.Group();
+      propStudy.visible = false;
+      const coverMat = new THREE.MeshStandardMaterial({ color: "#2563eb", roughness: 0.55 });
+      const pageMat = new THREE.MeshStandardMaterial({ color: "#fffdf5", roughness: 0.7 });
+      const bookL = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.04, 0.36), coverMat);
+      bookL.position.set(-0.14, 0, 0);
+      bookL.rotation.z = 0.22;
+      const bookR = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.04, 0.36), coverMat);
+      bookR.position.set(0.14, 0, 0);
+      bookR.rotation.z = -0.22;
+      const pagesL = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.03, 0.32), pageMat);
+      pagesL.position.set(-0.13, 0.025, 0);
+      pagesL.rotation.z = 0.22;
+      const pagesR = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.03, 0.32), pageMat);
+      pagesR.position.set(0.13, 0.025, 0);
+      pagesR.rotation.z = -0.22;
+      propStudy.position.set(0, 0.78, 0.48);
+      propStudy.rotation.x = 0.42;
+      propStudy.add(bookL, bookR, pagesL, pagesR);
+      activityPropsRoot.add(propStudy);
+
+      // 2) Cafe prop: Iced coffee cup + lid + straw in right paw
+      const propCafe = new THREE.Group();
+      propCafe.visible = false;
+      const cupBody = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.1, 0.075, 0.24, 10),
+        new THREE.MeshStandardMaterial({ color: "#b45309", roughness: 0.35 })
+      );
+      const cupCream = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.105, 0.105, 0.06, 10),
+        new THREE.MeshStandardMaterial({ color: "#fff8eb", roughness: 0.5 })
+      );
+      cupCream.position.y = 0.12;
+      const straw = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.015, 0.015, 0.2, 6),
+        new THREE.MeshBasicMaterial({ color: "#34d399" })
+      );
+      straw.position.set(0.02, 0.2, 0.02);
+      straw.rotation.z = -0.2;
+      propCafe.position.set(0.36, 0.72, 0.36);
+      propCafe.add(cupBody, cupCream, straw);
+      activityPropsRoot.add(propCafe);
+
+      // 3) Fishing prop: Bamboo rod + line + bobber + water ripple ring
+      const propFishing = new THREE.Group();
+      propFishing.visible = false;
+      const rodGroup = new THREE.Group();
+      rodGroup.position.set(0.22, 0.74, 0.26);
+      const rodMesh = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.018, 0.042, 1.95, 8),
+        new THREE.MeshStandardMaterial({ color: "#d99b52", roughness: 0.55 })
+      );
+      rodMesh.rotation.x = Math.PI * 0.28;
+      rodMesh.position.set(0, 0.62, 0.74);
+      rodGroup.add(rodMesh);
+      const lineMesh = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.008, 0.008, 1.0, 6),
+        new THREE.MeshBasicMaterial({ color: "#f8fafc", transparent: true, opacity: 0.85 })
+      );
+      const bobberGroup = new THREE.Group();
+      bobberGroup.position.set(0, 0.2, 2.35);
+      const bobTop = new THREE.Mesh(
+        new THREE.SphereGeometry(0.11, 10, 8, 0, Math.PI * 2, 0, Math.PI / 2),
+        new THREE.MeshBasicMaterial({ color: "#ef4444" })
+      );
+      const bobBot = new THREE.Mesh(
+        new THREE.SphereGeometry(0.11, 10, 8, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2),
+        new THREE.MeshBasicMaterial({ color: "#ffffff" })
+      );
+      const rippleMat = new THREE.MeshBasicMaterial({
+        color: "#ffffff",
+        transparent: true,
+        opacity: 0.65,
+        side: THREE.DoubleSide
+      });
+      const rippleMesh = new THREE.Mesh(new THREE.RingGeometry(0.18, 0.32, 18), rippleMat);
+      rippleMesh.rotation.x = -Math.PI / 2;
+      rippleMesh.position.y = -0.02;
+      bobberGroup.add(bobTop, bobBot, rippleMesh);
+      propFishing.add(rodGroup, lineMesh, bobberGroup);
+      activityPropsRoot.add(propFishing);
+
+      // 4) Lounge prop: Cool shades + coconut drink
+      const propLounge = new THREE.Group();
+      propLounge.visible = false;
+      const lensMat = new THREE.MeshStandardMaterial({ color: "#0f172a", roughness: 0.18 });
+      const lensL = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.09, 0.04), lensMat);
+      lensL.position.set(-0.11, 1.24, 0.34);
+      const lensR = lensL.clone();
+      lensR.position.x = 0.11;
+      const bridge = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.03, 0.04), lensMat);
+      bridge.position.set(0, 1.26, 0.34);
+      const coco = new THREE.Mesh(
+        new THREE.SphereGeometry(0.12, 10, 10),
+        new THREE.MeshStandardMaterial({ color: "#92400e", roughness: 0.75 })
+      );
+      coco.position.set(0.38, 0.72, 0.32);
+      const cocoStraw = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.015, 0.015, 0.18, 6),
+        new THREE.MeshBasicMaterial({ color: "#fb7185" })
+      );
+      cocoStraw.position.set(0.4, 0.84, 0.32);
+      cocoStraw.rotation.z = -0.25;
+      propLounge.add(lensL, lensR, bridge, coco, cocoStraw);
+      activityPropsRoot.add(propLounge);
+
+      // 5) Workout prop: Twin pastel kettlebells in hands
+      const propWorkout = new THREE.Group();
+      propWorkout.visible = false;
+      const kbMatL = new THREE.MeshStandardMaterial({ color: "#fb7185", roughness: 0.4 });
+      const kbMatR = new THREE.MeshStandardMaterial({ color: "#818cf8", roughness: 0.4 });
+      const kbL = new THREE.Mesh(new THREE.SphereGeometry(0.12, 10, 10), kbMatL);
+      kbL.position.set(-0.42, 0.58, 0.24);
+      const kbR = new THREE.Mesh(new THREE.SphereGeometry(0.12, 10, 10), kbMatR);
+      kbR.position.set(0.42, 0.58, 0.24);
+      propWorkout.add(kbL, kbR);
+      activityPropsRoot.add(propWorkout);
+
       this.panther = {
         group,
         surfboard,
@@ -4627,7 +4979,20 @@
         emoteSprite,
         emoteMat,
         shadowMesh,
-        shadowMat
+        shadowMat,
+        activityProps: {
+          root: activityPropsRoot,
+          study: propStudy,
+          cafe: propCafe,
+          fishing: propFishing,
+          rodGroup,
+          lineMesh,
+          bobberGroup,
+          rippleMesh,
+          rippleMat,
+          lounge: propLounge,
+          workout: propWorkout
+        }
       };
     }
 
@@ -4858,6 +5223,10 @@
     }
 
     jumpPanther() {
+      if (this.activeActivity) {
+        this.stopPantherActivity(true);
+        if (this.callbacks.onStopActivity) this.callbacks.onStopActivity();
+      }
       const ps = this.pantherState;
       if (ps.onGround) {
         ps.jumpedFromWater = Boolean(ps.onWater);
@@ -4893,6 +5262,10 @@
     }
 
     resetPantherToHub() {
+      if (this.activeActivity) {
+        this.stopPantherActivity(true);
+        if (this.callbacks.onStopActivity) this.callbacks.onStopActivity();
+      }
       const ps = this.pantherState;
       ps.x = 0;
       ps.z = 3.35;
@@ -4945,6 +5318,10 @@
         this.doPantherAction("cheer");
         return false;
       }
+      if (target.type === "activity" && this.callbacks.onTriggerActivity) {
+        this.callbacks.onTriggerActivity(target.activityId);
+        return true;
+      }
       if (target.type === "intel" && this.callbacks.onCollectIntel) {
         this.callbacks.onCollectIntel(target.intelId);
         return true;
@@ -4966,6 +5343,179 @@
         return true;
       }
       return false;
+    }
+
+    startPantherActivity(activityId, fallbackMeta = null) {
+      const THREE = window.THREE;
+      const st = this.activityStations ? this.activityStations.get(activityId) : null;
+      const act = (st && st.act) || fallbackMeta;
+      if (!act) return;
+
+      this.stopPantherActivity(true);
+      this.activeActivity = {
+        id: act.id,
+        type: act.type || "study",
+        startedAt: this.clockTime
+      };
+      this.fishingBiteActive = false;
+
+      const ps = this.pantherState;
+      ps.autoTarget = null;
+      ps.boostTimer = 0;
+      ps.action.type = null;
+      ps.action.timer = 0;
+
+      if (st) {
+        const standSurf = this._getSurfaceInfoAt(st.standX, st.standZ, false);
+        ps.x = st.standX;
+        ps.z = st.standZ;
+        ps.groundY = standSurf.onWater ? st.groundY : standSurf.groundY;
+        ps.y = ps.groundY;
+        ps.vy = 0;
+        ps.onGround = true;
+        ps.onWater = false;
+        ps.onBridgeId = null;
+        ps.faceAngle = st.standFaceAngle;
+        ps.faceX = Math.sin(st.standFaceAngle);
+        ps.faceZ = Math.cos(st.standFaceAngle);
+      }
+
+      if (this.panther) {
+        this.panther.group.position.set(ps.x, ps.y, ps.z);
+        this.panther.surfboard.visible = false;
+        this.panther.shadowMesh.position.set(ps.x, ps.y + 0.05, ps.z);
+        const ap = this.panther.activityProps;
+        if (ap) {
+          ap.root.rotation.y = ps.faceAngle;
+          ["study", "cafe", "fishing", "lounge", "workout"].forEach((k) => {
+            if (ap[k]) ap[k].visible = k === this.activeActivity.type;
+          });
+        }
+      }
+
+      this._setPantherEmote(act.emote || `${act.emoji || "🐾"} ${act.name}`, 3.8);
+      this._spawnPantherFX(16, ["#ffd32a", "#38bdf8", "#34d399", "#ff8ab4"], 0.4);
+
+      if (this.isWebGL && THREE && this.camera && this.controls) {
+        const ang = ps.faceAngle + (this.activeActivity.type === "fishing" ? 2.45 : 0.65);
+        const dist = this.activeActivity.type === "fishing" ? 7.4 : 6.4;
+        this.cameraMode = "follow";
+        this.cameraTargetPos = new THREE.Vector3(
+          ps.x + Math.sin(ang) * dist,
+          ps.y + (this.activeActivity.type === "fishing" ? 3.8 : 3.4),
+          ps.z + Math.cos(ang) * dist
+        );
+        this.controlsTargetPos = new THREE.Vector3(
+          ps.x + ps.faceX * (this.activeActivity.type === "fishing" ? 0.85 : 0.25),
+          ps.y + 0.85,
+          ps.z + ps.faceZ * (this.activeActivity.type === "fishing" ? 0.85 : 0.25)
+        );
+        this.isTweening = true;
+      }
+      this._checkPantherProximity();
+    }
+
+    setFishingBite(isBiting) {
+      this.fishingBiteActive = Boolean(isBiting);
+      if (!this.isWebGL || !this.panther || !window.THREE) return;
+      if (this.fishingBiteActive) {
+        const ps = this.pantherState;
+        const THREE = window.THREE;
+        const bx = ps.x + Math.sin(ps.faceAngle) * 2.35;
+        const bz = ps.z + Math.cos(ps.faceAngle) * 2.35;
+        const bSurf = this._getSurfaceInfoAt(bx, bz, false);
+        for (let i = 0; i < 16; i++) {
+          const mat = new THREE.MeshBasicMaterial({
+            color: i % 2 === 0 ? "#ffffff" : "#7dd3fc",
+            transparent: true,
+            opacity: 1
+          });
+          const m = new THREE.Mesh(new THREE.SphereGeometry(0.11, 6, 6), mat);
+          m.position.set(bx, bSurf.groundY + 0.1, bz);
+          this.scene.add(m);
+          const a = Math.random() * Math.PI * 2;
+          const sp = 1.1 + Math.random() * 2.2;
+          this.burstParticles.push({
+            mesh: m,
+            mat,
+            vx: Math.cos(a) * sp,
+            vy: 2.0 + Math.random() * 2.6,
+            vz: Math.sin(a) * sp,
+            life: 0.55 + Math.random() * 0.35
+          });
+        }
+        this._setPantherEmote("❗ 魚上鉤了！快按 Space / 收竿！", 3.2);
+      }
+    }
+
+    stopPantherActivity(silent = false) {
+      const had = Boolean(this.activeActivity);
+      this.activeActivity = null;
+      this.fishingBiteActive = false;
+      if (this.panther && this.panther.activityProps) {
+        const ap = this.panther.activityProps;
+        ["study", "cafe", "fishing", "lounge", "workout"].forEach((k) => {
+          if (ap[k]) ap[k].visible = false;
+        });
+      }
+      if (this.panther && this.panther.pantherParts) {
+        this.panther.pantherParts.bodyPivot.rotation.x = 0;
+      }
+      if (had && !silent) {
+        this._setPantherEmote("🐾 已起身繼續冒險！", 1.5);
+      }
+    }
+
+    setFocusMode(enabled) {
+      const THREE = window.THREE;
+      const next = Boolean(enabled);
+      if (next === this.focusModeActive) return;
+      this.focusModeActive = next;
+      const ps = this.pantherState;
+      const ap = this.panther && this.panther.activityProps;
+
+      if (next) {
+        if (this.isWebGL && THREE && this.camera && this.controls) {
+          this._focusSavedPose = {
+            cam: this.camera.position.clone(),
+            tgt: this.controls.target.clone()
+          };
+          const a = ps.faceAngle + 0.52;
+          this.cameraMode = "follow";
+          this.cameraTargetPos = new THREE.Vector3(
+            ps.x + Math.sin(a) * 4.9,
+            ps.y + 2.55,
+            ps.z + Math.cos(a) * 4.9
+          );
+          this.controlsTargetPos = new THREE.Vector3(ps.x, ps.y + 0.92, ps.z);
+          this.isTweening = true;
+        }
+        if (ap && ap.study) {
+          ["cafe", "fishing", "lounge", "workout"].forEach((k) => {
+            if (ap[k]) ap[k].visible = false;
+          });
+          ap.study.visible = true;
+        }
+        this._setPantherEmote("🍅 深度專注模式啟動中…", 2.4);
+      } else {
+        if (ap && (!this.activeActivity || this.activeActivity.type !== "study")) {
+          if (ap.study) ap.study.visible = false;
+        }
+        if (ap && this.activeActivity && ap[this.activeActivity.type]) {
+          ap[this.activeActivity.type].visible = true;
+        }
+        if (this.panther && this.panther.pantherParts) {
+          this.panther.pantherParts.bodyPivot.rotation.x = 0;
+        }
+        if (this._focusSavedPose && this.isWebGL) {
+          this.cameraTargetPos = this._focusSavedPose.cam;
+          this.controlsTargetPos = this._focusSavedPose.tgt;
+          this.isTweening = true;
+        } else {
+          this.focusPanther();
+        }
+        this._focusSavedPose = null;
+      }
     }
 
     _spawnPantherFX(count, palette, yOffset = 0.25) {
@@ -5029,8 +5579,12 @@
         }
       }
 
-      const prevKey = this.nearInteractable ? `${this.nearInteractable.type}:${this.nearInteractable.islandId || ""}:${this.nearInteractable.nodeId || ""}:${this.nearInteractable.kind || ""}` : "";
-      const nextKey = nextSpot ? `${nextSpot.type}:${nextSpot.islandId || ""}:${nextSpot.nodeId || ""}:${nextSpot.kind || ""}` : "";
+      const prevKey = this.nearInteractable
+        ? `${this.nearInteractable.type}:${this.nearInteractable.islandId || ""}:${this.nearInteractable.nodeId || ""}:${this.nearInteractable.kind || ""}:${this.nearInteractable.activityId || ""}`
+        : "";
+      const nextKey = nextSpot
+        ? `${nextSpot.type}:${nextSpot.islandId || ""}:${nextSpot.nodeId || ""}:${nextSpot.kind || ""}:${nextSpot.activityId || ""}`
+        : "";
       this.nearInteractable = nextSpot;
       if (prevKey !== nextKey && this.callbacks.onNearInteractable) {
         this.callbacks.onNearInteractable(nextSpot);
@@ -5456,6 +6010,10 @@
     flyToIsland(islandId) {
       const island = this.islandsData.find((i) => i.id === islandId);
       if (!island) return;
+      if (this.activeActivity) {
+        this.stopPantherActivity(true);
+        if (this.callbacks.onStopActivity) this.callbacks.onStopActivity();
+      }
       this.cameraMode = "follow";
       this._orbitHoldUntil = 0;
       this.selectedIslandId = islandId;
@@ -5520,6 +6078,18 @@
         const hit = hitObj.object.userData;
         if (hit && hit.isPanther) {
           this.doPantherAction("cheer");
+          return;
+        }
+        if (hit && hit.isActivity && hit.activityId) {
+          const st = this.activityStations && this.activityStations.get(hit.activityId);
+          const dist = st ? Math.hypot(this.pantherState.x - st.wx, this.pantherState.z - st.wz) : 0;
+          if (!st || dist <= 2.95) {
+            if (this.callbacks.onTriggerActivity) this.callbacks.onTriggerActivity(hit.activityId);
+          } else {
+            this.walkPantherTo(st.standX, st.standZ, () => {
+              if (this.callbacks.onTriggerActivity) this.callbacks.onTriggerActivity(hit.activityId);
+            });
+          }
           return;
         }
         if (hit && hit.isIntel && this.callbacks.onCollectIntel) {
@@ -5909,6 +6479,10 @@
       let moveStrength = 0;
 
       if (len > 0.05) {
+        if (this.activeActivity) {
+          this.stopPantherActivity(true);
+          if (this.callbacks.onStopActivity) this.callbacks.onStopActivity();
+        }
         ps.autoTarget = null;
         worldMoveX = (ix * rx + iy * fx) / len;
         worldMoveZ = (ix * rz + iy * fz) / len;
@@ -6086,6 +6660,8 @@
         this.panther.spriteHolder.visible = mode === "sprite";
       }
 
+      const actMode = (this.activeActivity && this.activeActivity.type) || (this.focusModeActive ? "study" : null);
+
       if (mode === "sprite") {
         if (ps.spinTimer > 0) {
           const p = 1 - ps.spinTimer / 0.48;
@@ -6112,24 +6688,60 @@
         this.panther.meshHolder.rotation.y = curYaw + diffYaw * Math.min(1, dt * 16);
 
         const swing = moved ? Math.sin(ps.walkPhase * 1.45) * 0.72 : 0;
-        parts.leftLeg.rotation.x = swing;
-        parts.rightLeg.rotation.x = -swing;
+        parts.leftLeg.rotation.x = actMode === "lounge" && !moved ? -0.45 : swing;
+        parts.rightLeg.rotation.x = actMode === "lounge" && !moved ? -0.45 : -swing;
         parts.tailGroup.rotation.y = Math.sin(this.clockTime * (moved ? 12 : 4.5)) * 0.28;
 
         if (ps.action.type === "cheer") {
           parts.leftArm.rotation.x = -Math.PI * 0.78 + Math.sin(this.clockTime * 18) * 0.22;
           parts.rightArm.rotation.x = -Math.PI * 0.78 - Math.sin(this.clockTime * 18) * 0.22;
           parts.bodyPivot.rotation.z = Math.sin(this.clockTime * 12) * 0.08;
+          parts.bodyPivot.rotation.x = 0;
+          parts.headGroup.rotation.x = 0;
         } else if (ps.action.type === "dance") {
           parts.leftArm.rotation.x = Math.sin(this.clockTime * 14) * 0.9;
           parts.rightArm.rotation.x = -Math.sin(this.clockTime * 14) * 0.9;
           parts.bodyPivot.rotation.z = Math.sin(this.clockTime * 10) * 0.14;
+          parts.bodyPivot.rotation.x = 0;
+          parts.headGroup.rotation.x = 0;
+        } else if (actMode && !moved) {
+          parts.bodyPivot.rotation.z = 0;
+          if (actMode === "study") {
+            parts.bodyPivot.rotation.x = 0.09;
+            parts.leftArm.rotation.x = -0.68;
+            parts.rightArm.rotation.x = -0.68;
+            parts.headGroup.rotation.x = 0.22 + Math.sin(this.clockTime * 1.8) * 0.05;
+          } else if (actMode === "cafe") {
+            parts.bodyPivot.rotation.x = 0;
+            parts.leftArm.rotation.x = -0.18;
+            parts.rightArm.rotation.x = -0.92 + Math.sin(this.clockTime * 2.2) * 0.28;
+            parts.headGroup.rotation.x = Math.sin(this.clockTime * 2.2) * 0.06;
+          } else if (actMode === "fishing") {
+            parts.bodyPivot.rotation.x = 0.04;
+            parts.leftArm.rotation.x = -0.46;
+            parts.rightArm.rotation.x = this.fishingBiteActive
+              ? -0.95 + Math.sin(this.clockTime * 16) * 0.18
+              : -0.78 + Math.sin(this.clockTime * 2.1) * 0.05;
+            parts.headGroup.rotation.x = 0.1;
+          } else if (actMode === "lounge") {
+            parts.bodyPivot.rotation.x = -0.22;
+            parts.leftArm.rotation.x = -0.32;
+            parts.rightArm.rotation.x = -0.82 + Math.sin(this.clockTime * 1.6) * 0.12;
+            parts.headGroup.rotation.x = -0.14 + Math.sin(this.clockTime * 1.4) * 0.05;
+          } else if (actMode === "workout") {
+            const rep = Math.abs(Math.sin(this.clockTime * 4.8));
+            parts.bodyPivot.rotation.x = 0;
+            parts.leftArm.rotation.x = -0.52 - rep * 1.12;
+            parts.rightArm.rotation.x = -0.52 - rep * 1.12;
+            parts.headGroup.rotation.x = -0.05;
+          }
         } else {
+          parts.bodyPivot.rotation.x = 0;
           parts.leftArm.rotation.x = !ps.onGround ? -0.55 : -swing * 0.82;
           parts.rightArm.rotation.x = !ps.onGround ? -0.55 : swing * 0.82;
           parts.bodyPivot.rotation.z = moved ? Math.sin(ps.walkPhase * 1.45) * 0.045 : 0;
+          parts.headGroup.rotation.x = ps.onGround ? Math.sin(this.clockTime * 2.5) * 0.04 : -0.12;
         }
-        parts.headGroup.rotation.x = ps.onGround ? Math.sin(this.clockTime * 2.5) * 0.04 : -0.12;
       }
 
       if (mode === "glb" && this.panther.customGlbGroup) {
@@ -6221,9 +6833,59 @@
         }
       }
 
-      const bob = ps.action.type === "dance" ? Math.abs(Math.sin(this.clockTime * 11)) * 0.32 : ps.onWater && ps.onGround ? Math.sin(this.clockTime * 3.5) * 0.06 : 0;
+      const workoutBob = actMode === "workout" && !moved ? Math.abs(Math.sin(this.clockTime * 4.8)) * 0.16 : 0;
+      const bob =
+        ps.action.type === "dance"
+          ? Math.abs(Math.sin(this.clockTime * 11)) * 0.32
+          : workoutBob > 0
+            ? workoutBob
+            : ps.onWater && ps.onGround
+              ? Math.sin(this.clockTime * 3.5) * 0.06
+              : 0;
       const surfLift = ps.onWater ? 0.14 : 0;
       this.panther.group.position.set(ps.x, ps.y + bob + surfLift, ps.z);
+
+      if (this.panther.activityProps) {
+        const ap = this.panther.activityProps;
+        ap.root.rotation.y = ps.faceAngle;
+        if (ap.cafe && ap.cafe.visible) {
+          ap.cafe.position.y = 0.72 + Math.max(0, Math.sin(this.clockTime * 2.2)) * 0.24;
+        }
+        if (ap.workout && ap.workout.visible) {
+          ap.workout.position.y = Math.abs(Math.sin(this.clockTime * 4.8)) * 0.28;
+        }
+        if (ap.fishing && ap.fishing.visible) {
+          const rodTilt = this.fishingBiteActive
+            ? Math.sin(this.clockTime * 18) * 0.09 - 0.1
+            : Math.sin(this.clockTime * 2.1) * 0.03;
+          ap.rodGroup.rotation.x = rodTilt;
+          const bx = ps.x + Math.sin(ps.faceAngle) * 2.35;
+          const bz = ps.z + Math.cos(ps.faceAngle) * 2.35;
+          const bSurf = this._getSurfaceInfoAt(bx, bz, false);
+          const bobRipple = this.fishingBiteActive
+            ? Math.sin(this.clockTime * 24) * 0.13 - 0.09
+            : Math.sin(this.clockTime * 3.0) * 0.035;
+          const bobRelY = bSurf.groundY - ps.y - bob + 0.06 + bobRipple;
+          ap.bobberGroup.position.set(0, bobRelY, 2.35);
+          if (ap.rippleMesh && ap.rippleMat) {
+            const rs = this.fishingBiteActive
+              ? 1.15 + ((this.clockTime * 3.5) % 1) * 1.4
+              : 0.9 + Math.sin(this.clockTime * 2.8) * 0.15;
+            ap.rippleMesh.scale.setScalar(rs);
+            ap.rippleMat.opacity = this.fishingBiteActive ? 0.9 : 0.45;
+          }
+          const tipX = 0.22;
+          const tipY = 0.74 + 1.24 * Math.cos(rodTilt) - 1.49 * Math.sin(rodTilt);
+          const tipZ = 0.26 + 1.24 * Math.sin(rodTilt) + 1.49 * Math.cos(rodTilt);
+          const tipV = new THREE.Vector3(tipX, tipY, tipZ);
+          const bobV = new THREE.Vector3(0, bobRelY + 0.06, 2.35);
+          const dirV = bobV.clone().sub(tipV);
+          const lineLen = Math.max(0.05, dirV.length());
+          ap.lineMesh.position.copy(tipV).addScaledVector(dirV, 0.5);
+          ap.lineMesh.scale.set(1, lineLen, 1);
+          ap.lineMesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dirV.normalize());
+        }
+      }
       if (mode === "sprite") {
         this.panther.spriteHolder.lookAt(this.camera.position.x, this.panther.group.position.y, this.camera.position.z);
       }
@@ -6249,7 +6911,15 @@
         const deltaT = this.controls.target.clone().sub(oldT);
         this.camera.position.add(deltaT);
 
-        if (this.chaseCam && moved && !this._isUserOrbiting()) {
+        if (this.focusModeActive && !this._isUserOrbiting()) {
+          const tgt = this.controls.target;
+          const cam = this.camera.position;
+          const dx = cam.x - tgt.x;
+          const dz = cam.z - tgt.z;
+          const r = Math.hypot(dx, dz) || 4.8;
+          const ang = Math.atan2(dx, dz) + dt * 0.08;
+          cam.set(tgt.x + Math.sin(ang) * r, cam.y, tgt.z + Math.cos(ang) * r);
+        } else if (this.chaseCam && moved && !this._isUserOrbiting()) {
           // 跑酷追逐視角：往前／斜向跑動時鏡頭繞到背後；按住 S 往鏡頭反方向倒退時鎖定鏡頭方位避免原地繞圈
           const tgt = this.controls.target;
           const cam = this.camera.position;
