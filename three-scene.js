@@ -1265,17 +1265,24 @@
           n.castShadow = useShadows;
           n.receiveShadow = Boolean(clickData && clickData.isHub);
           if (n.isSkinnedMesh) n.frustumCulled = false;
-          // Meshy / Higgsfield 3D 匯出材質 metalness=1 在無環境貼圖時會全黑，統一補亮
+          // Meshy / Higgsfield / Tripo PBR 匯出材質 metalness=1 在無環境貼圖時會全黑，統一補亮並保持 PBR 貼圖銳利
           const mat = n.material;
           if (mat && mat.isMeshStandardMaterial) {
             mat.metalnessMap = null;
             mat.metalness = 0;
-            mat.roughness = 0.85;
+            mat.roughness = mat.roughnessMap ? 0.92 : 0.85;
+            const maxAniso =
+              this.renderer && this.renderer.capabilities && typeof this.renderer.capabilities.getMaxAnisotropy === "function"
+                ? Math.min(8, this.renderer.capabilities.getMaxAnisotropy())
+                : 4;
             if (mat.map) {
+              mat.map.anisotropy = maxAniso;
               mat.emissive = new THREE.Color(0xffffff);
               mat.emissiveMap = mat.map;
               mat.emissiveIntensity = 0.09;
             }
+            if (mat.normalMap) mat.normalMap.anisotropy = maxAniso;
+            if (mat.roughnessMap) mat.roughnessMap.anisotropy = maxAniso;
             mat.needsUpdate = true;
           }
           if (isPantherSlot) {
@@ -1662,103 +1669,230 @@
       runQueue();
     }
 
+    _cloneSkinnedScene(source) {
+      const THREE = window.THREE;
+      const clone = source.clone(true);
+      const srcNodes = [];
+      const dstNodes = [];
+      source.traverse((n) => srcNodes.push(n));
+      clone.traverse((n) => dstNodes.push(n));
+      const nodeMap = new Map();
+      for (let i = 0; i < srcNodes.length; i++) nodeMap.set(srcNodes[i], dstNodes[i]);
+      for (let i = 0; i < dstNodes.length; i++) {
+        const dst = dstNodes[i];
+        if (dst.isSkinnedMesh && dst.skeleton) {
+          const newBones = dst.skeleton.bones.map((b) => nodeMap.get(b) || b);
+          const newInverses = dst.skeleton.boneInverses.map((m) => m.clone());
+          const newSkel = new THREE.Skeleton(newBones, newInverses);
+          dst.bind(newSkel, dst.bindMatrix ? dst.bindMatrix.clone() : new THREE.Matrix4());
+          dst.frustumCulled = false;
+        }
+      }
+      return clone;
+    }
+
+    _setCatRigAnim(rig, wantKey) {
+      if (!rig || !rig.actions) return;
+      const acts = rig.actions;
+      const target = acts[wantKey] ? wantKey : acts.idle ? "idle" : Object.keys(acts)[0];
+      if (!target || target === rig.currentAnim) return;
+      const prev = acts[rig.currentAnim];
+      const next = acts[target];
+      if (!next) return;
+      next.reset();
+      next.enabled = true;
+      next.setEffectiveWeight(1);
+      next.play();
+      if (prev && prev !== next) {
+        prev.enabled = true;
+        prev.crossFadeTo(next, 0.22, false);
+      }
+      rig.currentAnim = target;
+    }
+
+    _normalizeCatBase(base, targetHeight = 2.05) {
+      let box = this._measureModelBox(base);
+      const normScale = targetHeight / Math.max(box.max.y - box.min.y, 0.001);
+      base.scale.setScalar(normScale);
+      box = this._measureModelBox(base);
+      const center = box.getCenter(new THREE.Vector3());
+      base.position.set(base.position.x - center.x, base.position.y - box.min.y, base.position.z - center.z);
+      this._prepareGltfMeshes(base, false);
+      return base;
+    }
+
+    _mountHubCat(base, animations = null) {
+      if (!this.hubGroup) return;
+      if (!this.hubCatWrap) {
+        this.hubCatWrap = new THREE.Group();
+        this.hubCatWrap.position.set(-3.8, 1.76, 4.4);
+        this.hubCatWrap.rotation.y = 0.42;
+        this.hubGroup.add(this.hubCatWrap);
+        this._addCircleCollider(-3.8, 4.4, 0.72, 3.8);
+      }
+      this._clearGroupChildren(this.hubCatWrap);
+      this.clickTargets = this.clickTargets.filter((t) => !(t.userData && t.userData.isHubCat));
+      const hubCatMesh = this._cloneSkinnedScene(base);
+      hubCatMesh.traverse((n) => {
+        if (n.isMesh) {
+          n.userData = Object.assign({}, n.userData, { isHub: true, isHubCat: true });
+          this.clickTargets.push(n);
+        }
+      });
+      this.hubCatWrap.add(hubCatMesh);
+      this.hubCatRig = animations && animations.length ? this._bindPantherMixer(hubCatMesh, animations) : null;
+      this.hubCatCheerTimer = 0;
+    }
+
+    _mountIslandCat(islandId, base, scaleFactor = 0.76, animations = null) {
+      const catObj = this.islandCats && this.islandCats.get(islandId);
+      if (!catObj) return;
+      this.clickTargets = this.clickTargets.filter(
+        (t) => !(t.userData && t.userData.islandId === islandId && t.userData.isCat)
+      );
+      const islClone = this._cloneSkinnedScene(base);
+      islClone.scale.multiplyScalar(scaleFactor);
+      islClone.traverse((n) => {
+        if (n.isMesh) {
+          n.userData = Object.assign({}, n.userData, { islandId, isCat: true });
+          this.clickTargets.push(n);
+        }
+      });
+      this._clearGroupChildren(catObj.group);
+      catObj.group.add(islClone);
+      catObj.group.position.y = catObj.basePos.y;
+      catObj.group.rotation.z = 0;
+      catObj.rig = animations && animations.length ? this._bindPantherMixer(islClone, animations) : null;
+    }
+
+    _mountGoldStatue(base) {
+      const statueGroup = this.decorationMeshes && this.decorationMeshes.get("bld-statue");
+      if (!statueGroup) return;
+      this._clearGroupChildren(statueGroup);
+      const ped = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.65, 0.8, 0.56, 16),
+        new THREE.MeshStandardMaterial({ color: "#ede6d6", roughness: 0.65 })
+      );
+      ped.position.y = 0.28;
+      const goldCat = base.clone();
+      goldCat.scale.multiplyScalar(0.84);
+      goldCat.position.y = 0.55;
+      goldCat.traverse((n) => {
+        if (n.isMesh && n.material) {
+          const gm = n.material.clone();
+          gm.color = new THREE.Color("#ffd32a");
+          gm.emissive = new THREE.Color("#b45309");
+          gm.emissiveIntensity = 0.16;
+          gm.metalness = 0.45;
+          gm.roughness = 0.28;
+          n.material = gm;
+        }
+      });
+      statueGroup.add(ped, goldCat);
+    }
+
+    _loadCatVariant(loader, url, targetHeight, onReady) {
+      loader.load(
+        url,
+        (gltf) => {
+          const base = gltf.scene || (gltf.scenes && gltf.scenes[0]);
+          if (base && onReady) onReady(this._normalizeCatBase(base, targetHeight), gltf.animations || []);
+        },
+        undefined,
+        () => {}
+      );
+    }
+
+    _mountCaptainCat(base) {
+      if (!this.captainCat || !this.captainCat.group) return;
+      const captainClone = this._cloneSkinnedScene(base);
+      captainClone.scale.multiplyScalar(0.78);
+      this._clearGroupChildren(this.captainCat.group);
+      this.captainCat.group.add(captainClone);
+      this.captainCat.isMofuPirate = true;
+    }
+
+    _mountSalmonCat(base) {
+      const THREE = window.THREE;
+      if (!this.scene) return;
+      this.clickTargets = this.clickTargets.filter((t) => !(t.userData && t.userData.isSalmon));
+      if (!this.salmonCatGroup) {
+        this.salmonCatGroup = new THREE.Group();
+        this.scene.add(this.salmonCatGroup);
+      }
+      this._clearGroupChildren(this.salmonCatGroup);
+      const salmonWrap = new THREE.Group();
+      const salmonMesh = this._cloneSkinnedScene(base);
+      salmonMesh.scale.multiplyScalar(0.86);
+      salmonMesh.position.y -= 0.72;
+      salmonMesh.traverse((n) => {
+        if (n.isMesh) {
+          n.userData = Object.assign({}, n.userData, { isSalmon: true });
+          this.clickTargets.push(n);
+        }
+      });
+      // 讓櫻鮭貓福微微仰漂在水面上，露出快樂表情與粉紅肉球
+      salmonWrap.add(salmonMesh);
+      salmonWrap.rotation.x = -Math.PI * 0.4;
+      this.salmonCatGroup.add(salmonWrap);
+      this.salmonRollTimer = 0;
+    }
+
     _loadCatMascots(url, tries = 0) {
       const THREE = window.THREE;
       if (!THREE || !THREE.GLTFLoader) {
         if (tries < 50) setTimeout(() => this._loadCatMascots(url, tries + 1), 200);
         return;
       }
-      new THREE.GLTFLoader().load(
-        url,
-        (gltf) => {
-          const base = gltf.scene || (gltf.scenes && gltf.scenes[0]);
-          if (!base) return;
-          let box = this._measureModelBox(base);
-          const normScale = 2.05 / Math.max(box.max.y - box.min.y, 0.001);
-          base.scale.setScalar(normScale);
-          box = this._measureModelBox(base);
-          const center = box.getCenter(new THREE.Vector3());
-          base.position.set(base.position.x - center.x, base.position.y - box.min.y, base.position.z - center.z);
-          this._prepareGltfMeshes(base, false);
+      const loader = new THREE.GLTFLoader();
+      this._loadCatVariant(loader, url, 2.05, (base) => {
+        // 1. 中央廣場迎賓守護貓（先以預設模型兜底，待布偶《史珂》載入後升級）
+        this._mountHubCat(base);
 
-          // 1. 中央廣場迎賓守護貓（點擊可看提示）
-          if (this.hubGroup) {
-            const hubCatWrap = new THREE.Group();
-            const hubCatMesh = base.clone();
-            hubCatMesh.traverse((n) => {
-              if (n.isMesh) {
-                n.userData = Object.assign({}, n.userData, { isHub: true });
-                this.clickTargets.push(n);
-              }
-            });
-            hubCatWrap.add(hubCatMesh);
-            hubCatWrap.position.set(-3.8, 1.76, 4.4);
-            hubCatWrap.rotation.y = 0.42;
-            this.hubGroup.add(hubCatWrap);
-            this._addCircleCollider(-3.8, 4.4, 0.72, 3.8);
-          }
+        // 2. 島嶼巡邏學士貓同步升級為真 3D 公仔
+        if (this.walkerCat && this.walkerCat.group) {
+          const walkerClone = base.clone();
+          walkerClone.scale.multiplyScalar(0.72);
+          this._clearGroupChildren(this.walkerCat.group);
+          this.walkerCat.group.add(walkerClone);
+        }
 
-          // 2. 島嶼巡邏學士貓同步升級為真 3D 公仔
-          if (this.walkerCat && this.walkerCat.group) {
-            const walkerClone = base.clone();
-            walkerClone.scale.multiplyScalar(0.72);
-            this._clearGroupChildren(this.walkerCat.group);
-            this.walkerCat.group.add(walkerClone);
-          }
+        // 3. 海上帆船船長貓（先以預設兜底，待海盜船長貓載入後升級）
+        if (this.captainCat && this.captainCat.group) {
+          const captainClone = base.clone();
+          captainClone.scale.multiplyScalar(0.56);
+          this._clearGroupChildren(this.captainCat.group);
+          this.captainCat.group.add(captainClone);
+        }
 
-          // 3. 海上帆船船長貓共用真 3D 公仔
-          if (this.captainCat && this.captainCat.group) {
-            const captainClone = base.clone();
-            captainClone.scale.multiplyScalar(0.56);
-            this._clearGroupChildren(this.captainCat.group);
-            this.captainCat.group.add(captainClone);
-          }
+        // 4. 先掛上預設虎斑貓兜底（地理島阿岳維持橘貓，其餘各島接著升級專屬貓福珊迪角色）
+        if (this.islandCats) {
+          this.islandCats.forEach((_, islandId) => this._mountIslandCat(islandId, base, 0.76));
+        }
 
-          // 4. 六座學科島守護貓全部共享 cat_3d.glb（不額外增加網路流量）
-          if (this.islandCats) {
-            this.islandCats.forEach((catObj, islandId) => {
-              const islClone = base.clone();
-              islClone.scale.multiplyScalar(0.76);
-              islClone.traverse((n) => {
-                if (n.isMesh) {
-                  n.userData = Object.assign({}, n.userData, { islandId, isCat: true });
-                  this.clickTargets.push(n);
-                }
-              });
-              this._clearGroupChildren(catObj.group);
-              catObj.group.add(islClone);
-            });
-          }
+        // 5. 商店解鎖「自強不息黃金貓雕像」共用 cat_3d.glb 鍍金材質
+        this._mountGoldStatue(base);
 
-          // 5. 商店解鎖「自強不息黃金貓雕像」共用 cat_3d.glb 鍍金材質
-          const statueGroup = this.decorationMeshes && this.decorationMeshes.get("bld-statue");
-          if (statueGroup) {
-            this._clearGroupChildren(statueGroup);
-            const ped = new THREE.Mesh(
-              new THREE.CylinderGeometry(0.65, 0.8, 0.56, 16),
-              new THREE.MeshStandardMaterial({ color: "#ede6d6", roughness: 0.65 })
-            );
-            ped.position.y = 0.28;
-            const goldCat = base.clone();
-            goldCat.scale.multiplyScalar(0.84);
-            goldCat.position.y = 0.55;
-            goldCat.traverse((n) => {
-              if (n.isMesh && n.material) {
-                const gm = n.material.clone();
-                gm.color = new THREE.Color("#ffd32a");
-                gm.emissive = new THREE.Color("#b45309");
-                gm.emissiveIntensity = 0.16;
-                gm.metalness = 0.45;
-                gm.roughness = 0.28;
-                n.material = gm;
-              }
-            });
-            statueGroup.add(ped, goldCat);
-          }
-        },
-        undefined,
-        () => {}
-      );
+        // 6. 載入 6 隻《答對率》貓福珊迪 Q 彈水彩風格 H3.1 + 1024 PBR 模型
+        const breedConfigs = [
+          { url: "assets/cat_ragdoll_3d.glb?v=13", height: 2.18, hub: true, islands: ["history"], scale: 0.86 },
+          { url: "assets/cat_white_3d.glb?v=13", height: 2.18, islands: ["chinese"], scale: 0.86 },
+          { url: "assets/cat_calico_3d.glb?v=13", height: 2.18, islands: ["civics"], scale: 0.86 },
+          { url: "assets/cat_tuxedo_3d.glb?v=13", height: 2.18, islands: ["english", "listening"], scale: 0.86 },
+          { url: "assets/cat_pirate_3d.glb?v=13", height: 2.0, captain: true },
+          { url: "assets/cat_salmon_3d.glb?v=13", height: 1.9, salmon: true }
+        ];
+        breedConfigs.forEach((cfg) => {
+          this._loadCatVariant(loader, cfg.url, cfg.height, (variantBase, animations) => {
+            if (cfg.hub) this._mountHubCat(variantBase, animations);
+            if (cfg.captain) this._mountCaptainCat(variantBase);
+            if (cfg.salmon) this._mountSalmonCat(variantBase);
+            if (cfg.islands) {
+              cfg.islands.forEach((islId) => this._mountIslandCat(islId, variantBase, cfg.scale, animations));
+            }
+          });
+        });
+      });
     }
 
     /* 載入有骨架與動畫的 3D 南山豹（Higgsfield / Meshy 產生）。
@@ -5735,7 +5869,11 @@
     triggerCatCelebration(islandId) {
       const catObj = this.islandCats.get(islandId);
       if (catObj) {
-        catObj.jumpTime = 1.4;
+        catObj.jumpTime = catObj.rig ? 2.6 : 1.4;
+        if (catObj.rig) {
+          catObj.celebrateToggle = !catObj.celebrateToggle;
+          this._setCatRigAnim(catObj.rig, catObj.celebrateToggle ? "dance" : "cheer");
+        }
       }
       if (!this.isWebGL) return;
 
@@ -6096,7 +6234,15 @@
           this.callbacks.onCollectIntel(hit.intelId);
           return;
         }
+        if (hit && hit.isSalmon) {
+          this.salmonRollTimer = 1.8;
+          return;
+        }
         if (hit && hit.isHub && this.callbacks.onSelectHub) {
+          if (this.hubCatRig) {
+            this.hubCatCheerTimer = 2.6;
+            this._setCatRigAnim(this.hubCatRig, "cheer");
+          }
           this.callbacks.onSelectHub();
           return;
         }
@@ -6256,17 +6402,81 @@
 
         this.ambientUpdaters.forEach((fn) => fn(this.clockTime));
 
-        this.islandCats.forEach((cat) => {
+        if (this.hubCatRig && this.hubCatRig.mixer) {
+          if (this.hubCatCheerTimer > 0) {
+            this.hubCatCheerTimer = Math.max(0, this.hubCatCheerTimer - dt);
+            if (this.hubCatCheerTimer <= 0) this._setCatRigAnim(this.hubCatRig, "idle");
+          }
+          this.hubCatRig.mixer.update(dt);
+        }
+
+        if (this.hubCatWrap && !this.hubCatRig) {
+          // 中央廣場布偶史珂好奇張望＋微搖呼吸動態
+          this.hubCatWrap.rotation.y = 0.42 + Math.sin(this.clockTime * 1.15) * 0.22;
+          this.hubCatWrap.rotation.z = Math.sin(this.clockTime * 2.1) * 0.04;
+          this.hubCatWrap.position.y = 1.76 + Math.max(0, Math.sin(this.clockTime * 2.4)) * 0.04;
+        }
+
+        if (this.captainCat && this.captainCat.group && this.captainCat.isMofuPirate) {
+          this.captainCat.group.rotation.y = Math.sin(this.clockTime * 0.9) * 0.35;
+          this.captainCat.group.rotation.z = Math.sin(this.clockTime * 2.2) * 0.05;
+        }
+
+        if (this.salmonCatGroup) {
+          const st = this.clockTime * 0.55;
+          const sx = -17.5 + Math.cos(st) * 3.6;
+          const sz = 18.5 + Math.sin(st * 1.3) * 2.4;
+          const dx = -Math.sin(st) * 3.6;
+          const dz = Math.cos(st * 1.3) * 2.4 * 1.3;
+          let rollY = Math.sin(this.clockTime * 1.7) * 0.14;
+          let waveY = 0.16 + Math.sin(this.clockTime * 2.8) * 0.11;
+          if (this.salmonRollTimer > 0) {
+            this.salmonRollTimer = Math.max(0, this.salmonRollTimer - dt);
+            const p = 1 - this.salmonRollTimer / 1.8;
+            waveY += Math.sin(p * Math.PI) * 1.15;
+            rollY += p * Math.PI * 2;
+          }
+          this.salmonCatGroup.position.set(sx, waveY, sz);
+          this.salmonCatGroup.rotation.y = Math.atan2(dx, dz);
+          this.salmonCatGroup.rotation.z = rollY;
+        }
+
+        const catMotionMap = {
+          chinese: (t, ph) => ({ y: Math.sin(t * 1.8 + ph) * 0.03, rx: Math.sin(t * 2.2 + ph) * 0.06, rz: Math.sin(t * 1.1 + ph) * 0.03, ry: Math.sin(t * 0.8 + ph) * 0.1 }),
+          history: (t, ph) => ({ y: Math.abs(Math.sin(t * 2.3 + ph)) * 0.04, rx: 0, rz: Math.sin(t * 1.9 + ph) * 0.05, ry: Math.sin(t * 1.2 + ph) * 0.25 }),
+          english: (t, ph) => ({ y: 0.08 + Math.sin(t * 3.6 + ph) * 0.09, rx: Math.sin(t * 2.4 + ph) * 0.04, rz: Math.sin(t * 3.2 + ph) * 0.07, ry: Math.sin(t * 1.6 + ph) * 0.18 }),
+          listening: (t, ph) => ({ y: 0.08 + Math.sin(t * 4.2 + ph) * 0.1, rx: Math.cos(t * 3.0 + ph) * 0.05, rz: Math.sin(t * 4.0 + ph) * 0.08, ry: Math.sin(t * 2.0 + ph) * 0.2 }),
+          civics: (t, ph) => ({ y: Math.pow(Math.abs(Math.sin(t * 2.1 + ph)), 6) * 0.09, rx: Math.pow(Math.abs(Math.sin(t * 2.1 + ph)), 6) * 0.14, rz: Math.sin(t * 1.4 + ph) * 0.03, ry: 0 })
+        };
+
+        this.islandCats.forEach((cat, islandId) => {
           cat.group.lookAt(this.camera.position.x, cat.group.position.y, this.camera.position.z);
-          if (cat.jumpTime > 0) {
+          if (cat.rig && cat.rig.mixer) {
+            cat.group.position.y = cat.basePos.y;
+            cat.group.rotation.z = 0;
+            if (cat.jumpTime > 0) {
+              cat.jumpTime = Math.max(0, cat.jumpTime - dt);
+              if (cat.jumpTime <= 0) this._setCatRigAnim(cat.rig, "idle");
+            }
+            cat.rig.mixer.update(dt);
+          } else if (cat.jumpTime > 0) {
             cat.jumpTime = Math.max(0, cat.jumpTime - dt);
             const p = 1 - cat.jumpTime / 1.4;
             const hop = Math.abs(Math.sin(p * Math.PI * 3)) * 1.75;
             cat.group.position.y = cat.basePos.y + hop;
             cat.group.rotation.z = Math.sin(p * Math.PI * 6) * 0.18;
           } else {
-            cat.group.position.y = cat.basePos.y + Math.sin(this.clockTime * 2.6 + cat.phase) * 0.06;
-            cat.group.rotation.z = Math.sin(this.clockTime * 1.8 + cat.phase) * 0.04;
+            const fn = catMotionMap[islandId];
+            if (fn) {
+              const m = fn(this.clockTime, cat.phase);
+              cat.group.position.y = cat.basePos.y + m.y;
+              cat.group.rotation.x += m.rx;
+              cat.group.rotation.z = m.rz;
+              cat.group.rotation.y += m.ry;
+            } else {
+              cat.group.position.y = cat.basePos.y + Math.sin(this.clockTime * 2.6 + cat.phase) * 0.06;
+              cat.group.rotation.z = Math.sin(this.clockTime * 1.8 + cat.phase) * 0.04;
+            }
           }
         });
 
