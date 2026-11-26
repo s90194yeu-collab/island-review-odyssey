@@ -309,6 +309,12 @@
       this.islandCats = new Map();
       this.islandPaths = new Map();
       this.decorationMeshes = new Map(); // buildingId -> THREE.Group
+      this.balloonRefs = [];
+      this.campusBenchGroups = [];
+      this.islandChests = [];
+      this.hubLampGroups = [];
+      this.encounterMailboxes = [];
+      this.seaBuoyGroups = [];
       this.nightGlowMaterials = []; // window & lamp materials that glow at night
       this.rainbowMesh = null;
       this.labelEls = new Map();
@@ -953,6 +959,10 @@
         bg.add(env, stripe, basket);
         bg.position.set(bCfg.x, bCfg.y, bCfg.z);
         this.scene.add(bg);
+        this.balloonRefs.push({
+          group: bg,
+          tint: idx === 0 ? "#ffffff" : idx === 1 ? "#e6f4ff" : "#fff7d6"
+        });
         this.ambientUpdaters.push((t) => {
           bg.position.y = bCfg.y + Math.sin(t * 0.9 + idx * 2) * 1.4;
           bg.position.x = bCfg.x + Math.cos(t * 0.28 + idx) * 2.5;
@@ -1090,6 +1100,7 @@
         buoy.add(bBase, bTop, bGlow);
         buoy.position.set(bx, -0.05, bz);
         this.scene.add(buoy);
+        this.seaBuoyGroups.push(buoy);
         this.ambientUpdaters.push((t) => {
           buoy.position.y = -0.05 + Math.sin(t * 2.5 + idx) * 0.12;
           buoy.rotation.z = Math.sin(t * 2.0 + idx) * 0.1;
@@ -1710,6 +1721,181 @@
         });
       });
 
+      // 換裝 4 件輕量 3D 共用道具（寶箱、漂流瓶、熱氣球、校園長椅），全場 clone 共用幾何與貼圖
+      const propLoaders = [
+        ["assets/prop_chest.glb?v=16", 0.88, "height", (base) => {
+          if (!this.islandChests || !this.islandChests.length) return;
+          this.clickTargets = this.clickTargets.filter((t) => !(t.userData && t.userData.isChestProp));
+          this.islandChests.forEach(({ chest, island }) => {
+            this._clearGroupChildren(chest);
+            const clone = base.clone();
+            clone.rotation.y = -0.35;
+            clone.traverse((c) => {
+              if (c.isMesh) {
+                c.castShadow = true;
+                c.receiveShadow = true;
+                if (island && island.nodes && island.nodes[0]) {
+                  c.userData = { islandId: island.id, nodeId: island.nodes[0].id, isEncounter: true, isChestProp: true };
+                  this.clickTargets.push(c);
+                }
+              }
+            });
+            chest.add(clone);
+          });
+        }],
+        ["assets/prop_bottle.glb?v=16", 1.05, "height", (base) => {
+          if (!this.intelMeshes) return;
+          this.intelMeshes.forEach((entry) => {
+            if (!entry.isOcean || !entry.vis) return;
+            this.clickTargets = this.clickTargets.filter((t) => !(t.userData && t.userData.isIntel && t.userData.intelId === entry.item.id));
+            const ring = entry.ringMesh;
+            this._clearGroupChildren(entry.vis);
+            if (ring) {
+              entry.vis.add(ring);
+              ring.userData = { isIntel: true, intelId: entry.item.id };
+              this.clickTargets.push(ring);
+            }
+            const clone = base.clone();
+            clone.position.y = -0.34;
+            clone.rotation.z = 0.24;
+            entry.glbMats = [];
+            clone.traverse((c) => {
+              if (c.isMesh) {
+                if (c.material) {
+                  c.material = c.material.clone();
+                  entry.glbMats.push(c.material);
+                }
+                c.userData = { isIntel: true, intelId: entry.item.id };
+                this.clickTargets.push(c);
+              }
+            });
+            entry.vis.add(clone);
+          });
+          this.syncCollectedIntel(Array.from(this.collectedIntelSet));
+        }],
+        ["assets/prop_balloon.glb?v=16", 3.9, "height", (base) => {
+          if (!this.balloonRefs) return;
+          this.balloonRefs.forEach(({ group, tint }) => {
+            this._clearGroupChildren(group);
+            const clone = base.clone();
+            clone.position.y = -0.35;
+            if (tint && tint !== "#ffffff") {
+              clone.traverse((c) => {
+                if (c.isMesh && c.material) {
+                  c.material = c.material.clone();
+                  c.material.color.set(tint);
+                }
+              });
+            }
+            group.add(clone);
+          });
+        }],
+        ["assets/prop_bench.glb?v=16", 0.88, "height", (base) => {
+          if (!this.campusBenchGroups) return;
+          this.campusBenchGroups.forEach((bench) => {
+            this._clearGroupChildren(bench);
+            const clone = base.clone();
+            clone.traverse((c) => {
+              if (c.isMesh) {
+                c.castShadow = true;
+                c.receiveShadow = true;
+              }
+            });
+            bench.add(clone);
+          });
+        }],
+        ["assets/prop_lamp.glb?v=16", 2.18, "height", (base) => {
+          if (!this.hubLampGroups) return;
+          this.hubLampGroups.forEach(({ group, rotY }) => {
+            this._clearGroupChildren(group);
+            const clone = base.clone();
+            clone.rotation.y = rotY || 0;
+            clone.traverse((c) => {
+              if (c.isMesh) {
+                c.castShadow = true;
+                c.receiveShadow = true;
+              }
+            });
+            group.add(clone);
+          });
+        }],
+        ["assets/prop_mailbox.glb?v=16", 1.12, "height", (base) => {
+          if (!this.encounterMailboxes) return;
+          this.clickTargets = this.clickTargets.filter((t) => !(t.userData && t.userData.isMailboxProp));
+          this.encounterMailboxes.forEach(({ mailbox, islandId, nodeId, rotY }) => {
+            this._clearGroupChildren(mailbox);
+            const clone = base.clone();
+            clone.rotation.y = rotY || 0;
+            clone.traverse((c) => {
+              if (c.isMesh) {
+                c.castShadow = true;
+                c.receiveShadow = true;
+                c.userData = { islandId, nodeId, isEncounter: true, isMailboxProp: true };
+                this.clickTargets.push(c);
+              }
+            });
+            mailbox.add(clone);
+          });
+        }],
+        ["assets/prop_crystal.glb?v=16", 1.02, "height", (base) => {
+          if (!this.intelMeshes) return;
+          this.intelMeshes.forEach((entry) => {
+            if (entry.isOcean || !entry.vis) return;
+            this.clickTargets = this.clickTargets.filter((t) => !(t.userData && t.userData.isIntel && t.userData.intelId === entry.item.id));
+            const ring = entry.ringMesh;
+            this._clearGroupChildren(entry.vis);
+            if (ring) {
+              entry.vis.add(ring);
+              ring.userData = { isIntel: true, intelId: entry.item.id };
+              this.clickTargets.push(ring);
+            }
+            const clone = base.clone();
+            clone.position.y = -0.48;
+            const tintCol = new THREE.Color(entry.accentHex || "#f59e0b");
+            entry.glbMats = [];
+            clone.traverse((c) => {
+              if (c.isMesh) {
+                if (c.material) {
+                  c.material = c.material.clone();
+                  c.material.color.lerp(tintCol, 0.35);
+                  c.material.emissive = tintCol.clone();
+                  c.material.emissiveIntensity = 0.34;
+                  entry.glbMats.push(c.material);
+                }
+                c.userData = { isIntel: true, intelId: entry.item.id };
+                this.clickTargets.push(c);
+              }
+            });
+            entry.vis.add(clone);
+          });
+          this.syncCollectedIntel(Array.from(this.collectedIntelSet));
+        }],
+        ["assets/prop_buoy.glb?v=16", 1.48, "height", (base) => {
+          if (!this.seaBuoyGroups) return;
+          this.seaBuoyGroups.forEach((buoy) => {
+            this._clearGroupChildren(buoy);
+            const clone = base.clone();
+            clone.position.y = -0.24;
+            buoy.add(clone);
+          });
+        }]
+      ];
+      propLoaders.forEach(([url, targetSize, sizeMode, onApply]) => {
+        tasks.push((done) => {
+          let finished = false;
+          const finish = () => {
+            if (finished) return;
+            finished = true;
+            if (done) done();
+          };
+          this._loadPropGLB(url, targetSize, sizeMode, (base) => {
+            onApply(base);
+            finish();
+          });
+          setTimeout(finish, 3000);
+        });
+      });
+
       // 先並行載入海空活體與帆船，再 2 個併發緩載裝飾（避免同時佔用行動端頻寬）
       let qi = 0;
       const runQueue = () => {
@@ -1926,14 +2112,15 @@
         // 5. 商店解鎖「自強不息黃金貓雕像」共用 cat_3d.glb 鍍金材質
         this._mountGoldStatue(base);
 
-        // 6. 載入 6 隻《答對率》貓福珊迪 Q 彈水彩風格 H3.0 + 1024 PBR + 眼神光補亮模型
+        // 6. 載入 7 隻《答對率》貓福珊迪 Q 彈水彩風格 H3.0/H3.5 + 1024 PBR + 眼神光補亮模型
         const breedConfigs = [
           { url: "assets/cat_ragdoll_3d.glb?v=14", height: 2.18, hub: true, islands: ["history"], scale: 0.86 },
           { url: "assets/cat_white_3d.glb?v=14", height: 2.18, islands: ["chinese"], scale: 0.86 },
           { url: "assets/cat_calico_3d.glb?v=14", height: 2.18, islands: ["civics"], scale: 0.86 },
           { url: "assets/cat_tuxedo_3d.glb?v=14", height: 2.18, islands: ["english", "listening"], scale: 0.86 },
+          { url: "assets/cat_geo_3d.glb?v=15", height: 2.18, islands: ["geography"], scale: 0.86 },
           { url: "assets/cat_pirate_3d.glb?v=14", height: 2.0, captain: true },
-          { url: "assets/cat_salmon_3d.glb?v=14", height: 1.9, salmon: true }
+          { url: "assets/cat_salmon_3d.glb?v=15", height: 1.9, salmon: true }
         ];
         breedConfigs.forEach((cfg) => {
           this._loadCatVariant(loader, cfg.url, cfg.height, (variantBase, animations) => {
@@ -2141,6 +2328,7 @@
         bench.add(leg);
       });
       bench.add(seat, back);
+      this.campusBenchGroups.push(bench);
       return bench;
     }
 
@@ -2394,14 +2582,18 @@
       const hubLampMat = new THREE.MeshBasicMaterial({ color: "#fef08a" });
       this.nightGlowMaterials.push(hubLampMat);
       [-5.6, 5.6].forEach((lx) => {
+        const lampGroup = new THREE.Group();
+        lampGroup.position.set(lx, 1.74, 3.3);
         const post = new THREE.Mesh(
           new THREE.CylinderGeometry(0.07, 0.09, 1.65, 8),
           new THREE.MeshStandardMaterial({ color: "#475569" })
         );
-        post.position.set(lx, 2.48, 3.3);
+        post.position.set(0, 0.74, 0);
         const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.22, 10, 10), hubLampMat);
-        bulb.position.set(lx, 3.36, 3.3);
-        hub.add(post, bulb);
+        bulb.position.set(0, 1.62, 0);
+        lampGroup.add(post, bulb);
+        hub.add(lampGroup);
+        this.hubLampGroups.push({ group: lampGroup, rotY: lx < 0 ? 0.25 : Math.PI - 0.25 });
         this._addCircleCollider(lx, 3.3, 0.28, 3.5);
       });
       const flowerColors = ["#ff8ab4", "#ffd13b", "#a78bfa", "#34d399"];
@@ -2896,6 +3088,7 @@
           baseY,
           wx,
           wz,
+          accentHex,
           phase: idx * 0.65,
           isOcean: item.locationType === "ocean"
         });
@@ -2931,6 +3124,14 @@
         if (entry.coreMat) {
           entry.coreMat.emissiveIntensity = done ? 0.08 : entry.isOcean ? 0.35 : 0.42;
           if (entry.isOcean) entry.coreMat.opacity = done ? 0.35 : 0.86;
+        }
+        if (entry.glbMats && entry.glbMats.length) {
+          entry.glbMats.forEach((m) => {
+            m.emissiveIntensity = done ? 0.04 : (entry.isOcean ? 0.1 : 0.34);
+            m.transparent = done;
+            m.opacity = done ? 0.45 : 1.0;
+            m.needsUpdate = true;
+          });
         }
         if (entry.ringMesh) entry.ringMesh.visible = !done;
       });
@@ -3630,11 +3831,12 @@
       chest.add(box, trim);
       chest.traverse((c) => {
         if (c.isMesh && island.nodes[0]) {
-          c.userData = { islandId: island.id, nodeId: island.nodes[0].id, isEncounter: true };
+          c.userData = { islandId: island.id, nodeId: island.nodes[0].id, isEncounter: true, isChestProp: true };
           this.clickTargets.push(c);
         }
       });
       group.add(chest);
+      this.islandChests.push({ chest, island });
       this._addBoxCollider(island.position.x + 9.2, island.position.z - 1.2, 0.46, 0.38, 0, 2.8);
     }
 
@@ -3791,11 +3993,17 @@
         mailbox.add(mPost, mBox, mTop);
         mailbox.traverse((c) => {
           if (c.isMesh) {
-            c.userData = { islandId: island.id, nodeId: node.id, isEncounter: true };
+            c.userData = { islandId: island.id, nodeId: node.id, isEncounter: true, isMailboxProp: true };
             this.clickTargets.push(c);
           }
         });
         group.add(mailbox);
+        this.encounterMailboxes.push({
+          mailbox,
+          islandId: island.id,
+          nodeId: node.id,
+          rotY: Math.atan2(-ex, -ez) + 0.35
+        });
 
         waypoints.push({ angle: encAngle, nodeId: node.id, kind: "encounter" });
         this.interactableSpots.push({
@@ -7434,6 +7642,12 @@
         this.islandCats.clear();
         this.islandPaths.clear();
         this.decorationMeshes.clear();
+        this.balloonRefs = [];
+        this.campusBenchGroups = [];
+        this.islandChests = [];
+        this.hubLampGroups = [];
+        this.encounterMailboxes = [];
+        this.seaBuoyGroups = [];
         if (this.intelMeshes) this.intelMeshes.clear();
         this._initThree();
         this.isWebGL = true;
