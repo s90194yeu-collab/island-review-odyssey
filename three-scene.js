@@ -330,6 +330,10 @@
       this.softGlowTex = null;
       this.stylizedMaterials = [];
       this.oceanUniforms = null;
+      this.skyUniforms = null;
+      this.terrainUniformList = [];
+      this.grassUniformList = [];
+      this.sanctuaryLights = [];
       this.islandGrowthGroups = new Map();
       this.islandTreeSlots = [];
       this.islandCottageSlots = [];
@@ -351,8 +355,8 @@
       // Camera & boat tween targets
       this.cameraMode = "follow"; // follow | overview
       this.chaseCam = true; // 跑酷追逐視角：跑動時鏡頭自動繞到角色背後（C 鍵切換）
-      this.chaseDist = 8.4; // 鏡頭與角色的水平距離
-      this.chaseHeight = 3.5; // 鏡頭高於注視點的高度（越小越接近背後平視）
+      this.chaseDist = 6.2; // 原神／星鐵過肩探索鏡頭水平距離
+      this.chaseHeight = 0.42; // 相對注視點（胸肩上方）的鏡頭高度，呈微俯平視構圖
       this.cameraTargetPos = null;
       this.controlsTargetPos = null;
       this.isTweening = false;
@@ -383,7 +387,7 @@
         sex: "m",
         x: 0,
         y: 1.76,
-        z: 3.35,
+        z: 5.8,
         groundY: 1.76,
         onWater: false,
         onBridgeId: null,
@@ -392,12 +396,12 @@
         onGround: true,
         doubleJumped: false,
         spinTimer: 0,
-        dir: "front",
+        dir: "back",
         frame: 0,
         walkPhase: 0,
         faceX: 0,
-        faceZ: 1,
-        faceAngle: 0,
+        faceZ: -1,
+        faceAngle: Math.PI,
         input: { ix: 0, iy: 0, sprint: false },
         boostTimer: 0,
         boostX: 0,
@@ -570,9 +574,16 @@
 
     _getAtmoEmissiveIntensity(mode) {
       const m = mode || this.atmosphereMode || "day";
-      if (m === "night") return 0.01;
-      if (m === "sunset") return 0.025;
-      return 0.05;
+      if (m === "night") return 0.03;
+      if (m === "sunset") return 0.06;
+      return 0.08;
+    }
+
+    _getArchEmissiveIntensity(mode) {
+      const m = mode || this.atmosphereMode || "day";
+      if (m === "night") return 0.18;
+      if (m === "sunset") return 0.25;
+      return 0.24;
     }
 
     _ensureOutlineEffect() {
@@ -897,9 +908,9 @@
 
       this.scene = new THREE.Scene();
       this.scene.background = new THREE.Color("#7ec9f5");
-      this.scene.fog = new THREE.FogExp2("#adddf7", 0.0017);
+      this.scene.fog = new THREE.FogExp2("#b8e2f8", 0.0014);
 
-      this.camera = new THREE.PerspectiveCamera(45, width / height, 0.5, 760);
+      this.camera = new THREE.PerspectiveCamera(56, width / height, 0.35, 920);
       const psInit = this.pantherState;
       const initPose = this._getFollowPose(psInit.x, psInit.y, psInit.z, width, height);
       this.camera.position.copy(initPose.camPos);
@@ -916,9 +927,9 @@
         this.controls = new THREE.OrbitControls(this.camera, this.renderer.domElement);
         this.controls.enableDamping = true;
         this.controls.dampingFactor = 0.07;
-        this.controls.maxPolarAngle = Math.PI / 2 - 0.1;
-        this.controls.minPolarAngle = 0.25;
-        this.controls.minDistance = 8;
+        this.controls.maxPolarAngle = Math.PI * 0.54;
+        this.controls.minPolarAngle = 0.22;
+        this.controls.minDistance = 3.8;
         this.controls.maxDistance = 420;
         this.controls.target.copy(initPose.targetPos);
         // 記錄使用者是否正在手動轉鏡頭，避免追逐鏡頭跟他搶控制
@@ -931,10 +942,10 @@
         });
       }
 
-      this.hemiLight = new THREE.HemisphereLight("#d8f0ff", "#3d749c", 0.42);
+      this.hemiLight = new THREE.HemisphereLight("#e8f5ff", "#5c8ca8", 0.5);
       this.scene.add(this.hemiLight);
 
-      this.sunLight = new THREE.DirectionalLight("#fff5dc", 0.44);
+      this.sunLight = new THREE.DirectionalLight("#fff5dc", 0.48);
       this.sunLight.position.set(36, 68, 34);
       this.sunLight.castShadow = true;
       this.sunLight.shadow.mapSize.width = 1024;
@@ -948,18 +959,22 @@
       this.sunLight.shadow.camera.bottom = -d;
       this.scene.add(this.sunLight);
 
-      this.rimLight = new THREE.DirectionalLight("#63a9f2", 0.08);
-      this.rimLight.position.set(-30, 18, -28);
+      this.rimLight = new THREE.DirectionalLight("#9ad0ff", 0.16);
+      this.rimLight.position.set(-30, 18, -36);
       this.scene.add(this.rimLight);
 
       this.colliders = [];
       this.landmarkGroups = new Map();
       this.campusBoards = new Map();
       this.activityStations = new Map();
+      this.terrainUniformList = [];
+      this.grassUniformList = [];
+      this.sanctuaryLights = [];
       this.activeActivity = null;
       this.fishingBiteActive = false;
       this.focusModeActive = false;
       this._focusSavedPose = null;
+      this._buildSkyDome();
       this._buildStarField();
       this._buildOcean();
       this._buildClouds();
@@ -1008,6 +1023,142 @@
       });
 
       window.addEventListener("resize", () => this.onResize());
+    }
+
+    _buildSkyDome() {
+      const THREE = window.THREE;
+      this.skyUniforms = {
+        uTime: { value: 0 },
+        uTopColor: { value: new THREE.Color("#2b7ce5") },
+        uMidColor: { value: new THREE.Color("#73c5f8") },
+        uHorizonColor: { value: new THREE.Color("#d9f2ff") },
+        uFogColor: { value: new THREE.Color("#b8e2f8") },
+        uSunDir: { value: new THREE.Vector3(0.32, 0.34, -0.88).normalize() },
+        uSunColor: { value: new THREE.Color("#fff5d2") },
+        uCloudColor: { value: new THREE.Color("#ffffff") },
+        uCloudShade: { value: new THREE.Color("#cfe6fb") },
+        uMountainNear: { value: new THREE.Color("#7cb5df") },
+        uMountainFar: { value: new THREE.Color("#9cc7ea") },
+        uNightMix: { value: 0.0 }
+      };
+
+      const skyGeo = new THREE.SphereGeometry(430, 32, 20);
+      const skyMat = new THREE.ShaderMaterial({
+        uniforms: this.skyUniforms,
+        side: THREE.BackSide,
+        depthWrite: false,
+        fog: false,
+        vertexShader: [
+          "varying vec3 vDir;",
+          "void main() {",
+          "  vDir = normalize(position);",
+          "  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);",
+          "}"
+        ].join("\n"),
+        fragmentShader: [
+          "uniform float uTime;",
+          "uniform vec3 uTopColor;",
+          "uniform vec3 uMidColor;",
+          "uniform vec3 uHorizonColor;",
+          "uniform vec3 uFogColor;",
+          "uniform vec3 uSunDir;",
+          "uniform vec3 uSunColor;",
+          "uniform vec3 uCloudColor;",
+          "uniform vec3 uCloudShade;",
+          "uniform float uNightMix;",
+          "varying vec3 vDir;",
+          "float hash21(vec2 p) {",
+          "  return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);",
+          "}",
+          "float vnoise(vec2 p) {",
+          "  vec2 i = floor(p);",
+          "  vec2 f = fract(p);",
+          "  f = f * f * (3.0 - 2.0 * f);",
+          "  float a = hash21(i);",
+          "  float b = hash21(i + vec2(1.0, 0.0));",
+          "  float c = hash21(i + vec2(0.0, 1.0));",
+          "  float d = hash21(i + vec2(1.0, 1.0));",
+          "  return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);",
+          "}",
+          "float fbm(vec2 p) {",
+          "  float v = 0.0;",
+          "  float a = 0.5;",
+          "  for (int i = 0; i < 4; i++) {",
+          "    v += a * vnoise(p);",
+          "    p = p * 2.03 + vec2(17.1, 31.7);",
+          "    a *= 0.5;",
+          "  }",
+          "  return v;",
+          "}",
+          "void main() {",
+          "  vec3 d = normalize(vDir);",
+          "  float h = clamp(d.y, 0.0, 1.0);",
+          "  vec3 sky = mix(uHorizonColor, uMidColor, smoothstep(0.0, 0.24, h));",
+          "  sky = mix(sky, uTopColor, smoothstep(0.18, 0.78, h));",
+          "  if (d.y < 0.0) {",
+          "    sky = mix(uHorizonColor, uFogColor, smoothstep(0.0, -0.18, d.y));",
+          "  }",
+          "  float sunDot = max(dot(d, normalize(uSunDir)), 0.0);",
+          "  sky += uSunColor * (pow(sunDot, 10.0) * mix(0.32, 0.14, uNightMix) + smoothstep(0.9965, 0.9994, sunDot) * 0.95);",
+          "  if (d.y > 0.03) {",
+          "    vec2 cuv = d.xz / (d.y + 0.16) * 0.62 + vec2(uTime * 0.012, uTime * 0.004);",
+          "    float n = fbm(cuv * 1.45);",
+          "    float cMask = smoothstep(0.50, 0.74, n) * smoothstep(0.03, 0.22, d.y) * (1.0 - smoothstep(0.68, 0.95, d.y));",
+          "    float lightSide = smoothstep(0.45, 0.78, fbm(cuv * 1.45 + uSunDir.xz * 0.08));",
+          "    vec3 cloudCol = mix(uCloudShade, uCloudColor, lightSide);",
+          "    sky = mix(sky, cloudCol, cMask * mix(0.76, 0.22, uNightMix));",
+          "  }",
+          "  gl_FragColor = vec4(sky, 1.0);",
+          "}"
+        ].join("\n")
+      });
+      this._disableOutline(skyMat, null);
+      const skyMesh = new THREE.Mesh(skyGeo, skyMat);
+      this.scene.add(skyMesh);
+
+      // 遠海地平線群島與青黛山嵐剪影環（增添《原神》開闊大世界視距層次）
+      const ridgeGeo = new THREE.CylinderGeometry(285, 292, 46, 72, 1, true);
+      const ridgeMat = new THREE.ShaderMaterial({
+        uniforms: this.skyUniforms,
+        side: THREE.BackSide,
+        transparent: true,
+        depthWrite: false,
+        fog: false,
+        vertexShader: [
+          "varying float vAngle;",
+          "varying float vV;",
+          "void main() {",
+          "  vAngle = atan(position.z, position.x);",
+          "  vV = uv.y;",
+          "  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);",
+          "}"
+        ].join("\n"),
+        fragmentShader: [
+          "uniform vec3 uMountainNear;",
+          "uniform vec3 uMountainFar;",
+          "uniform vec3 uFogColor;",
+          "varying float vAngle;",
+          "varying float vV;",
+          "float ridgeWave(float a, float ph) {",
+          "  return 0.28 + 0.12 * sin(a * 5.0 + ph) + 0.08 * sin(a * 11.0 - ph * 1.7) + 0.04 * cos(a * 19.0 + ph * 0.5);",
+          "}",
+          "void main() {",
+          "  float farH = ridgeWave(vAngle, 1.1) + 0.10;",
+          "  float nearH = ridgeWave(vAngle + 0.7, 3.4) * 0.86;",
+          "  float inFar = 1.0 - smoothstep(farH - 0.025, farH + 0.025, vV);",
+          "  float inNear = 1.0 - smoothstep(nearH - 0.02, nearH + 0.02, vV);",
+          "  float alpha = max(inFar * 0.48, inNear * 0.72) * smoothstep(0.06, 0.20, vV);",
+          "  if (alpha < 0.01) discard;",
+          "  vec3 col = mix(uMountainFar, uMountainNear, inNear);",
+          "  col = mix(uFogColor, col, smoothstep(0.10, 0.36, vV));",
+          "  gl_FragColor = vec4(col, alpha);",
+          "}"
+        ].join("\n")
+      });
+      this._disableOutline(ridgeMat, null);
+      const ridgeMesh = new THREE.Mesh(ridgeGeo, ridgeMat);
+      ridgeMesh.position.y = 8.5;
+      this.scene.add(ridgeMesh);
     }
 
     _buildStarField() {
@@ -1061,8 +1212,8 @@
         uShallowColor: { value: new THREE.Color("#5fd0e8") },
         uDeepColor: { value: new THREE.Color("#2d8fca") },
         uFoamColor: { value: new THREE.Color("#ffffff") },
-        uFogColor: { value: new THREE.Color("#adddf7") },
-        uFogDensity: { value: 0.0017 },
+        uFogColor: { value: new THREE.Color("#b8e2f8") },
+        uFogDensity: { value: 0.0014 },
         uIslands: { value: islVecs }
       };
 
@@ -1717,7 +1868,7 @@
       const THREE = window.THREE;
       const useShadows = Boolean(isPantherSlot || (clickData && clickData.isHub));
       const isArchitectural = Boolean(clickData && (clickData.isHub || clickData.islandId));
-      const outlineThickness = isArchitectural ? 0.0015 : 0.0022;
+      const outlineThickness = isPantherSlot ? 0.0016 : null;
       const gradMap = this._getToonGradientMap();
       const maxAniso =
         this.renderer && this.renderer.capabilities && typeof this.renderer.capabilities.getMaxAnisotropy === "function"
@@ -1747,18 +1898,21 @@
             if (mat.normalMap) {
               mat.normalMap.anisotropy = maxAniso;
               toonParams.normalMap = mat.normalMap;
-              toonParams.normalScale = new THREE.Vector2(0.4, 0.4);
+              toonParams.normalScale = new THREE.Vector2(0.35, 0.35);
             }
             if (mat.map) {
               mat.map.anisotropy = maxAniso;
               toonParams.emissive = new THREE.Color(0xffffff);
               toonParams.emissiveMap = mat.map;
-              toonParams.emissiveIntensity = this._getAtmoEmissiveIntensity();
+              toonParams.emissiveIntensity = isArchitectural
+                ? this._getArchEmissiveIntensity()
+                : this._getAtmoEmissiveIntensity();
             } else if (mat.emissive) {
               toonParams.emissive = mat.emissive.clone();
-              toonParams.emissiveIntensity = Math.min(mat.emissiveIntensity || 0, 0.28);
+              toonParams.emissiveIntensity = Math.min(mat.emissiveIntensity || 0, 0.3);
             }
             const toonMat = new THREE.MeshToonMaterial(toonParams);
+            toonMat.userData = Object.assign({}, toonMat.userData, { isArchMat: isArchitectural });
             this._disableOutline(toonMat, outlineThickness);
             n.material = toonMat;
             if (toonParams.emissiveMap) {
@@ -1801,7 +1955,7 @@
         }
       } else if (slot === "hub" && this.hubGroup) {
         if (this.hubHallGroup) this.hubHallGroup.visible = false;
-        wrapper.position.set(0, 1.74, -4.6);
+        wrapper.position.set(0, 1.76, -5.6);
         if (this.customGlbs.hub) this.hubGroup.remove(this.customGlbs.hub);
         this.customGlbs.hub = wrapper;
         this.hubGroup.add(wrapper);
@@ -1809,7 +1963,7 @@
         const islGroup = this.islandGroups.get(slot);
         const lm = this.landmarkGroups && this.landmarkGroups.get(slot);
         if (lm) lm.visible = false;
-        wrapper.position.set(-2.6, 3.22, -2.8);
+        wrapper.position.set(0, 2.46, -5.5);
         if (this.customGlbs[slot]) islGroup.remove(this.customGlbs[slot]);
         this.customGlbs[slot] = wrapper;
         islGroup.add(wrapper);
@@ -1915,8 +2069,16 @@
         const model = gltf.scene || (gltf.scenes && gltf.scenes[0]);
         if (!model) return;
         let box = this._measureModelBox(model);
-        const targetH = slot === "panther" ? 1.85 : slot === "hub" ? 9.0 : 7.8;
-        const scale = targetH / Math.max(box.max.y - box.min.y, 0.001);
+        const sz = new THREE.Vector3();
+        box.getSize(sz);
+        let scale = 1.0;
+        if (slot === "panther") {
+          scale = 1.85 / Math.max(sz.y, 0.001);
+        } else if (slot === "hub") {
+          scale = Math.min(8.6 / Math.max(sz.y, 0.001), 11.4 / Math.max(sz.x, sz.z, 0.001));
+        } else {
+          scale = Math.min(9.9 / Math.max(sz.y, 0.001), 11.8 / Math.max(sz.x, sz.z, 0.001));
+        }
         model.scale.setScalar(scale);
         box = this._measureModelBox(model);
         const center = box.getCenter(new THREE.Vector3());
@@ -2995,36 +3157,517 @@
       return board;
     }
 
-    /* ==================== 中央主島：真 3D 南山自強鐘塔校園廣場 + 羅盤噴泉 ==================== */
+    /* ==================== 原神／星鐵級地貌數學、無縫 Painterly Shader 與 3D 搖曳草海 ==================== */
+    _smoothStep(edge0, edge1, x) {
+      const t = Math.max(0, Math.min(1, (x - edge0) / Math.max(edge1 - edge0, 0.0001)));
+      return t * t * (3 - 2 * t);
+    }
+
+    _evalHubHeight(dx, dz) {
+      const d = Math.hypot(dx, dz);
+      if (d <= 8.2) return 1.76;
+      if (d <= 11.2) return 1.76 - this._smoothStep(8.2, 9.1, d) * 0.18;
+      if (d <= 12.7) return 1.58 - this._smoothStep(11.2, 12.7, d) * 0.72;
+      if (d <= 14.3) return 0.86 - this._smoothStep(12.7, 14.3, d) * 1.24;
+      return -0.45;
+    }
+
+    _getIslandAlcoveSlots() {
+      return [
+        { x: -4.8, z: 6.8, face: 0.78 },
+        { x: 5.4, z: 8.4, face: -0.78 },
+        { x: -7.8, z: 1.4, face: 1.36 },
+        { x: 10.0, z: -1.6, face: -1.52 },
+        { x: -9.2, z: -5.6, face: 2.05 },
+        { x: 8.6, z: 10.4, face: -0.65 }
+      ];
+    }
+
+    _evalIslandHeight(island, dx, dz, seed) {
+      const r = (island && island.radius) || 20;
+      const ang = Math.atan2(dz, dx);
+      const coastMod = 1.0 + 0.045 * Math.sin(ang * 3 + seed) + 0.025 * Math.cos(ang * 5 - seed * 1.4);
+      const coastR = r * coastMod;
+      const dist = Math.hypot(dx, dz);
+      const platEnd = coastR * 0.77;
+      const midEnd = coastR * 0.90;
+      const beachEnd = coastR * 1.05;
+
+      let baseH = -0.46;
+      if (dist <= platEnd) {
+        baseH = 1.84;
+        const aveClear = this._smoothStep(2.6, 4.8, Math.abs(dx));
+        const edgeFade = 1.0 - this._smoothStep(platEnd * 0.65, platEnd * 0.95, dist);
+        const sanctClear = this._smoothStep(0.95, 1.35, Math.hypot(dx / 7.8, (dz + 5.5) / 6.5));
+        baseH += 0.1 * Math.sin(dx * 0.25 + seed) * Math.cos(dz * 0.25 - seed * 0.6) * aveClear * edgeFade * sanctClear;
+      } else if (dist <= midEnd) {
+        baseH = 1.84 - this._smoothStep(platEnd, midEnd, dist) * 0.90;
+      } else if (dist <= beachEnd) {
+        baseH = 0.94 - this._smoothStep(midEnd, beachEnd, dist) * 1.38;
+      }
+
+      const sd = Math.hypot(dx / 7.8, (dz + 5.5) / 6.5);
+      const onPlat = dist <= platEnd ? 1 : 0;
+      const terraceBlend = (1.0 - this._smoothStep(0.84, 1.22, sd)) * onPlat;
+      const terraceH = 1.84 + terraceBlend * (2.48 - 1.84);
+
+      const st = Math.max(0, Math.min(1, (3.95 - dz) / 3.5));
+      const stairSide = 1.0 - this._smoothStep(1.95, 2.55, Math.abs(dx));
+      const stairH = (1.84 + st * (2.48 - 1.84) * stairSide) * onPlat;
+
+      return Math.max(baseH, terraceH, stairH);
+    }
+
+    _createSculptedTerrainMesh(outerRadius, heightFn, mat, radialSegs = 68, ringSegs = 34) {
+      const THREE = window.THREE;
+      const positions = [];
+      const uvs = [];
+      const indices = [];
+
+      positions.push(0, heightFn(0, 0), 0);
+      uvs.push(0.5, 0.5);
+
+      for (let ri = 1; ri <= ringSegs; ri++) {
+        const radius = (ri / ringSegs) * outerRadius;
+        for (let ai = 0; ai <= radialSegs; ai++) {
+          const theta = (ai / radialSegs) * Math.PI * 2;
+          const x = Math.cos(theta) * radius;
+          const z = Math.sin(theta) * radius;
+          positions.push(x, heightFn(x, z), z);
+          uvs.push(x / (outerRadius * 2) + 0.5, z / (outerRadius * 2) + 0.5);
+        }
+      }
+
+      const stride = radialSegs + 1;
+      for (let ai = 0; ai < radialSegs; ai++) {
+        indices.push(0, 1 + ai + 1, 1 + ai);
+      }
+      for (let ri = 1; ri < ringSegs; ri++) {
+        const rowA = 1 + (ri - 1) * stride;
+        const rowB = 1 + ri * stride;
+        for (let ai = 0; ai < radialSegs; ai++) {
+          const a = rowA + ai;
+          const b = rowA + ai + 1;
+          const c = rowB + ai;
+          const d = rowB + ai + 1;
+          indices.push(a, b, d);
+          indices.push(a, d, c);
+        }
+      }
+
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+      geo.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
+      geo.setIndex(indices);
+      geo.computeVertexNormals();
+
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      return mesh;
+    }
+
+    _createTerrainShaderMat(theme, options = {}) {
+      const THREE = window.THREE;
+      const isHub = Boolean(options.isHub);
+      const biomeMode = options.biomeMode || 0.0;
+      const alcoves = (options.alcoves || []).slice(0, 6);
+      while (alcoves.length < 6) alcoves.push(new THREE.Vector3(999, 999, 0));
+
+      const grassLight = new THREE.Color(theme.grassColor || "#7ec87e").lerp(new THREE.Color("#b4e688"), 0.24);
+      const grassDark = new THREE.Color(theme.hillColor || "#509c5a").lerp(new THREE.Color("#3b7d58"), 0.22);
+      const sandCol = new THREE.Color(theme.sandColor || "#f3e1bd");
+
+      const uniforms = {
+        uTime: { value: 0 },
+        uGrassLight: { value: grassLight },
+        uGrassDark: { value: grassDark },
+        uSandColor: { value: sandCol },
+        uStoneLight: { value: new THREE.Color("#f0e5d3") },
+        uStoneDark: { value: new THREE.Color("#cbbda7") },
+        uCliffLight: { value: new THREE.Color("#cbb193") },
+        uCliffDark: { value: new THREE.Color("#967a63") },
+        uAccentColor: { value: new THREE.Color(options.accentColor || "#d97706") },
+        uSunDir: { value: new THREE.Vector3(0.42, 0.78, 0.44).normalize() },
+        uSunTint: { value: new THREE.Color("#ffffff") },
+        uFogColor: { value: new THREE.Color("#b8e2f8") },
+        uFogDensity: { value: 0.0014 },
+        uNightMix: { value: 0.0 },
+        uIsHub: { value: isHub ? 1.0 : 0.0 },
+        uBiomeMode: { value: biomeMode },
+        uAlcoves: { value: alcoves }
+      };
+
+      const mat = new THREE.ShaderMaterial({
+        uniforms,
+        vertexShader: [
+          "varying vec3 vLocalPos;",
+          "varying vec3 vLocalNormal;",
+          "varying vec3 vWorldPos;",
+          "varying vec3 vWorldNormal;",
+          "void main() {",
+          "  vLocalPos = position;",
+          "  vLocalNormal = normalize(normal);",
+          "  vec4 wp = modelMatrix * vec4(position, 1.0);",
+          "  vWorldPos = wp.xyz;",
+          "  vWorldNormal = normalize(mat3(modelMatrix) * normal);",
+          "  gl_Position = projectionMatrix * viewMatrix * wp;",
+          "}"
+        ].join("\n"),
+        fragmentShader: [
+          "uniform float uTime;",
+          "uniform vec3 uGrassLight;",
+          "uniform vec3 uGrassDark;",
+          "uniform vec3 uSandColor;",
+          "uniform vec3 uStoneLight;",
+          "uniform vec3 uStoneDark;",
+          "uniform vec3 uCliffLight;",
+          "uniform vec3 uCliffDark;",
+          "uniform vec3 uAccentColor;",
+          "uniform vec3 uSunDir;",
+          "uniform vec3 uSunTint;",
+          "uniform vec3 uFogColor;",
+          "uniform float uFogDensity;",
+          "uniform float uNightMix;",
+          "uniform float uIsHub;",
+          "uniform float uBiomeMode;",
+          "uniform vec3 uAlcoves[6];",
+          "varying vec3 vLocalPos;",
+          "varying vec3 vLocalNormal;",
+          "varying vec3 vWorldPos;",
+          "varying vec3 vWorldNormal;",
+          "float hash21(vec2 p) {",
+          "  return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);",
+          "}",
+          "vec2 hash22(vec2 p) {",
+          "  vec3 p3 = fract(vec3(p.xyx) * vec3(0.1031, 0.1030, 0.0973));",
+          "  p3 += dot(p3, p3.yzx + 33.33);",
+          "  return fract((p3.xx + p3.yz) * p3.zy);",
+          "}",
+          "float vnoise(vec2 p) {",
+          "  vec2 i = floor(p);",
+          "  vec2 f = fract(p);",
+          "  f = f * f * (3.0 - 2.0 * f);",
+          "  float a = hash21(i);",
+          "  float b = hash21(i + vec2(1.0, 0.0));",
+          "  float c = hash21(i + vec2(0.0, 1.0));",
+          "  float d = hash21(i + vec2(1.0, 1.0));",
+          "  return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);",
+          "}",
+          "float fbm(vec2 p) {",
+          "  float v = 0.0;",
+          "  float a = 0.5;",
+          "  for (int i = 0; i < 3; i++) {",
+          "    v += a * vnoise(p);",
+          "    p = p * 2.07 + vec2(11.3, 19.7);",
+          "    a *= 0.5;",
+          "  }",
+          "  return v;",
+          "}",
+          "vec2 voronoiStone(vec2 x) {",
+          "  vec2 n = floor(x);",
+          "  vec2 f = fract(x);",
+          "  float md = 8.0;",
+          "  float md2 = 8.0;",
+          "  float id = 0.0;",
+          "  for (int j = -1; j <= 1; j++) {",
+          "    for (int i = -1; i <= 1; i++) {",
+          "      vec2 g = vec2(float(i), float(j));",
+          "      vec2 o = 0.15 + 0.7 * hash22(n + g);",
+          "      vec2 r = g + o - f;",
+          "      float d = dot(r, r);",
+          "      if (d < md) {",
+          "        md2 = md;",
+          "        md = d;",
+          "        id = hash21(n + g);",
+          "      } else if (d < md2) {",
+          "        md2 = d;",
+          "      }",
+          "    }",
+          "  }",
+          "  return vec2(sqrt(md2) - sqrt(md), id);",
+          "}",
+          "void main() {",
+          "  vec2 p = vLocalPos.xz;",
+          "  float h = vLocalPos.y;",
+          "  vec3 nrm = normalize(vLocalNormal);",
+          "  float macro = fbm(p * 0.18);",
+          "  float detail = fbm(p * 0.62);",
+          "  float ndl = dot(normalize(vWorldNormal), normalize(uSunDir)) * 0.5 + 0.5;",
+          "  float cel = mix(0.32, 1.0, smoothstep(0.36, 0.64, ndl));",
+          "  float cloud = smoothstep(0.54, 0.80, fbm(vWorldPos.xz * 0.036 + vec2(uTime * 0.24, -uTime * 0.13)));",
+          "  vec3 grassCol = mix(uGrassDark, uGrassLight, clamp(macro * 0.55 + detail * 0.45, 0.0, 1.0));",
+          "  grassCol *= mix(0.84, 1.06, cel);",
+          "  grassCol = mix(grassCol, grassCol * vec3(0.84, 0.90, 0.97), cloud * 0.26 * (1.0 - uNightMix));",
+          "  float stoneMask = 0.0;",
+          "  float trimMask = 0.0;",
+          "  if (uIsHub > 0.5) {",
+          "    float hd = length(p);",
+          "    float plazaM = 1.0 - smoothstep(7.7, 8.28, hd);",
+          "    float aveW = 1.85 + (vnoise(p * 0.9) - 0.5) * 0.26;",
+          "    float southM = (1.0 - smoothstep(aveW - 0.3, aveW + 0.2, abs(p.x))) * smoothstep(6.0, 7.2, p.y) * (1.0 - smoothstep(11.4, 12.6, p.y));",
+          "    stoneMask = max(plazaM, southM);",
+          "    trimMask = smoothstep(7.2, 7.65, hd) * (1.0 - smoothstep(7.65, 8.05, hd));",
+          "  } else {",
+          "    float sd = length(vec2(p.x / 7.05, (p.y + 5.5) / 5.75));",
+          "    float sanctM = 1.0 - smoothstep(0.90, 1.04, sd);",
+          "    trimMask = smoothstep(0.84, 0.90, sd) * (1.0 - smoothstep(0.92, 0.98, sd));",
+          "    float aveEdge = 2.08 + (vnoise(p * 0.85) - 0.5) * 0.34;",
+          "    float aveM = (1.0 - smoothstep(aveEdge - 0.32, aveEdge + 0.24, abs(p.x))) * smoothstep(-1.0, 0.4, p.y) * (1.0 - smoothstep(14.8, 17.4, p.y));",
+          "    stoneMask = max(sanctM, aveM);",
+          "    for (int i = 0; i < 6; i++) {",
+          "      if (uAlcoves[i].z > 0.1) {",
+          "        float ad = length(p - uAlcoves[i].xy) - uAlcoves[i].z;",
+          "        float am = 1.0 - smoothstep(-0.32, 0.16, ad);",
+          "        stoneMask = max(stoneMask, am);",
+          "      }",
+          "    }",
+          "  }",
+          "  vec2 vp = p * 0.82 + vec2(fbm(p * 0.5) * 0.32);",
+          "  vec2 vor = voronoiStone(vp);",
+          "  float mortar = smoothstep(0.035, 0.12, vor.x);",
+          "  vec3 stoneTile = mix(uStoneDark, uStoneLight, 0.42 + vor.y * 0.58);",
+          "  vec3 stoneCol = mix(uStoneDark * 0.86, stoneTile, mortar);",
+          "  stoneCol = mix(stoneCol, mix(stoneCol, uAccentColor, 0.32), trimMask * 0.85);",
+          "  stoneCol *= mix(0.86, 1.04, cel);",
+          "  vec3 col = mix(grassCol, stoneCol, stoneMask * 0.95);",
+          "  if (uBiomeMode > 0.5) {",
+          "    float lavaMask = (1.0 - smoothstep(-6.5, -2.0, p.x)) * (1.0 - stoneMask) * smoothstep(1.05, 1.55, h);",
+          "    vec3 basalt = mix(vec3(0.24, 0.19, 0.18), vec3(0.36, 0.28, 0.25), detail);",
+          "    float crack = 1.0 - smoothstep(0.02, 0.085, vor.x);",
+          "    basalt = mix(basalt, vec3(1.0, 0.44, 0.16), crack * 0.72 * (1.0 - smoothstep(-8.0, -3.5, p.x)));",
+          "    col = mix(col, basalt, lavaMask * 0.88);",
+          "    float iceMask = smoothstep(2.0, 6.2, p.x) * (1.0 - stoneMask) * smoothstep(1.05, 1.55, h);",
+          "    vec3 snowCol = mix(vec3(0.68, 0.88, 0.97), vec3(0.94, 0.99, 1.0), cel * 0.7 + detail * 0.3);",
+          "    col = mix(col, snowCol, iceMask * 0.9);",
+          "  }",
+          "  float cliffSlope = smoothstep(0.10, 0.34, 1.0 - nrm.y) * (1.0 - stoneMask * 0.78);",
+          "  float strata = sin(h * 14.0 + macro * 4.5) * 0.5 + 0.5;",
+          "  vec3 cliffCol = mix(uCliffDark, uCliffLight, strata * 0.5 + detail * 0.5) * mix(0.84, 1.04, cel);",
+          "  col = mix(col, cliffCol, cliffSlope * 0.92);",
+          "  float sandMask = (1.0 - smoothstep(0.82, 1.48, h)) * (1.0 - stoneMask * 0.85);",
+          "  vec3 wetSand = uSandColor * 0.76;",
+          "  vec3 sandFinal = mix(wetSand, uSandColor, smoothstep(0.05, 0.65, h)) * mix(0.88, 1.05, cel);",
+          "  col = mix(col, sandFinal, sandMask);",
+          "  col *= uSunTint;",
+          "  col = mix(col, col * vec3(0.42, 0.52, 0.72), uNightMix * 0.72);",
+          "  float distCam = length(cameraPosition - vWorldPos);",
+          "  float fogFactor = 1.0 - exp(-uFogDensity * uFogDensity * distCam * distCam);",
+          "  col = mix(col, uFogColor, clamp(fogFactor, 0.0, 1.0));",
+          "  gl_FragColor = vec4(col, 1.0);",
+          "}"
+        ].join("\n")
+      });
+      this._disableOutline(mat, null);
+      this.terrainUniformList.push(uniforms);
+      return mat;
+    }
+
+    _buildInstancedMeadowGrass(group, island, seed, isHub, count, heightFn, theme, alcoveList = []) {
+      const THREE = window.THREE;
+      if (!THREE.InstancedMesh) return;
+
+      // 三片交叉微彎 3D 草葉幾何（各方向都蓬鬆飽滿）
+      const positions = [];
+      const uvs = [];
+      const indices = [];
+      let vOff = 0;
+      for (let b = 0; b < 3; b++) {
+        const ang = (b / 3) * Math.PI * 2 + 0.35;
+        const cs = Math.cos(ang);
+        const sn = Math.sin(ang);
+        const w0 = 0.095;
+        const w1 = 0.062;
+        const h1 = 0.24;
+        const h2 = 0.48;
+        const lean = 0.11;
+        const rx = cs * 0.04;
+        const rz = sn * 0.04;
+        const addPt = (lx, ly, lz, u, v) => {
+          positions.push(lx * -sn + lz * cs + rx, ly, lx * cs + lz * sn + rz);
+          uvs.push(u, v);
+        };
+        addPt(-w0, 0, 0, 0, 0);
+        addPt(w0, 0, 0, 1, 0);
+        addPt(-w1, h1, lean * 0.35, 0, 0.5);
+        addPt(w1, h1, lean * 0.35, 1, 0.5);
+        addPt(0, h2, lean, 0.5, 1.0);
+        indices.push(vOff, vOff + 1, vOff + 2, vOff + 1, vOff + 3, vOff + 2, vOff + 2, vOff + 3, vOff + 4);
+        vOff += 5;
+      }
+      const bladeGeo = new THREE.BufferGeometry();
+      bladeGeo.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+      bladeGeo.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
+      bladeGeo.setIndex(indices);
+      bladeGeo.computeVertexNormals();
+
+      const baseCol = new THREE.Color(theme.hillColor || "#589f63");
+      const tipCol = new THREE.Color(theme.grassColor || "#86d07d").lerp(new THREE.Color("#e8f79e"), 0.34);
+      const uniforms = {
+        uTime: { value: 0 },
+        uBaseColor: { value: baseCol },
+        uTipColor: { value: tipCol },
+        uFlowerColor: { value: new THREE.Color((theme.foliageColors && theme.foliageColors[0]) || "#ffd32a") },
+        uFogColor: { value: new THREE.Color("#b8e2f8") },
+        uFogDensity: { value: 0.0014 },
+        uNightMix: { value: 0.0 }
+      };
+
+      const grassMat = new THREE.ShaderMaterial({
+        uniforms,
+        side: THREE.DoubleSide,
+        vertexShader: [
+          "uniform float uTime;",
+          "varying vec2 vUv;",
+          "varying float vRand;",
+          "varying vec3 vWorldPos;",
+          "void main() {",
+          "  vUv = uv;",
+          "  vec4 origin = vec4(0.0, 0.0, 0.0, 1.0);",
+          "  vec4 lp = vec4(position, 1.0);",
+          "  #ifdef USE_INSTANCING",
+          "    origin = instanceMatrix * origin;",
+          "    lp = instanceMatrix * lp;",
+          "  #endif",
+          "  vec4 wOrig = modelMatrix * origin;",
+          "  vec4 wp = modelMatrix * lp;",
+          "  float h = fract(sin(dot(wOrig.xz, vec2(12.9898, 78.233))) * 43758.5453);",
+          "  vRand = h;",
+          "  float sway = sin(uTime * 2.1 + wOrig.x * 0.45 + wOrig.z * 0.38 + h * 6.28) * 0.14",
+          "             + cos(uTime * 3.3 + wOrig.z * 0.72) * 0.05;",
+          "  float bend = uv.y * uv.y;",
+          "  wp.x += sway * bend;",
+          "  wp.z += sway * 0.6 * bend;",
+          "  vWorldPos = wp.xyz;",
+          "  gl_Position = projectionMatrix * viewMatrix * wp;",
+          "}"
+        ].join("\n"),
+        fragmentShader: [
+          "uniform vec3 uBaseColor;",
+          "uniform vec3 uTipColor;",
+          "uniform vec3 uFlowerColor;",
+          "uniform vec3 uFogColor;",
+          "uniform float uFogDensity;",
+          "uniform float uNightMix;",
+          "varying vec2 vUv;",
+          "varying float vRand;",
+          "varying vec3 vWorldPos;",
+          "void main() {",
+          "  vec3 tip = mix(uTipColor, mix(uTipColor, uFlowerColor, 0.65), step(0.88, vRand));",
+          "  vec3 col = mix(uBaseColor, tip, smoothstep(0.05, 0.92, vUv.y));",
+          "  col *= mix(0.88, 1.12, vRand);",
+          "  col = mix(col, col * vec3(0.40, 0.50, 0.72), uNightMix * 0.74);",
+          "  float distCam = length(cameraPosition - vWorldPos);",
+          "  float fogFactor = 1.0 - exp(-uFogDensity * uFogDensity * distCam * distCam);",
+          "  col = mix(col, uFogColor, clamp(fogFactor, 0.0, 1.0));",
+          "  gl_FragColor = vec4(col, 1.0);",
+          "}"
+        ].join("\n")
+      });
+      this._disableOutline(grassMat, null);
+      this.grassUniformList.push(uniforms);
+
+      const dummy = new THREE.Object3D();
+      const placements = [];
+      const rMax = isHub ? 11.4 : ((island && island.radius) || 20) * 0.75;
+      let rng = Math.round((seed + 1.37) * 9973) + (isHub ? 777 : 131);
+      const nextRand = () => {
+        rng = (rng * 1664525 + 1013904223) >>> 0;
+        return rng / 4294967296;
+      };
+
+      for (let t = 0; t < count * 5 && placements.length < count; t++) {
+        const ang = nextRand() * Math.PI * 2;
+        const rr = isHub ? 8.35 + nextRand() * 2.85 : 2.2 + Math.sqrt(nextRand()) * (rMax - 2.2);
+        const gx = Math.cos(ang) * rr;
+        const gz = Math.sin(ang) * rr;
+        if (isHub) {
+          if (Math.abs(gx) < 2.25 && gz > 5.0) continue;
+        } else {
+          if (Math.abs(gx) < 2.65 && gz > -4.5 && gz < 16.5) continue;
+          if (Math.hypot(gx / 7.45, (gz + 5.5) / 6.15) < 0.98) continue;
+          let nearSpot = false;
+          for (let ai = 0; ai < alcoveList.length; ai++) {
+            if (Math.hypot(gx - alcoveList[ai].x, gz - alcoveList[ai].z) < 2.25) {
+              nearSpot = true;
+              break;
+            }
+          }
+          if (nearSpot) continue;
+          if (Math.hypot(gx + 11.4, gz - 5.4) < 2.4) continue; // cottage
+          if (Math.hypot(gx - 11.2, gz + 6.6) < 2.4) continue; // lighthouse
+          if (Math.hypot(gx + 4.0, gz - 11.4) < 1.8) continue; // board
+          if (Math.hypot(gx - 3.4, gz - 9.6) < 1.8) continue; // guardian cat
+          if (island.id === "geography" && gx > 3.6) continue; // keep glacier snow clean
+        }
+        const gy = heightFn(gx, gz);
+        if (gy < 1.48) continue;
+        placements.push({ x: gx, y: gy - 0.03, z: gz, s: 0.72 + nextRand() * 0.65, ry: nextRand() * Math.PI * 2 });
+      }
+
+      if (placements.length === 0) return;
+      const inst = new THREE.InstancedMesh(bladeGeo, grassMat, placements.length);
+      inst.frustumCulled = false;
+      placements.forEach((p, idx) => {
+        dummy.position.set(p.x, p.y, p.z);
+        dummy.rotation.set(0, p.ry, 0);
+        dummy.scale.set(p.s, p.s * (0.88 + (idx % 3) * 0.14), p.s);
+        dummy.updateMatrix();
+        inst.setMatrixAt(idx, dummy.matrix);
+      });
+      inst.instanceMatrix.needsUpdate = true;
+      group.add(inst);
+    }
+
+    /* ==================== 中央主島：原神級無縫石磚廣場 ＋ 3D搖曳草海 ＋ 南山自強鐘樓 ==================== */
     _buildCentralHub() {
       const THREE = window.THREE;
       const hub = new THREE.Group();
       hub.position.set(0, 0, 0);
 
-      const env = this._getEnvTextures();
-      const sandMat = this._makeToonMat({
-        color: "#ebd5b0",
-        map: env.sand
-      }, true);
-      const grassMat = this._makeToonMat({
-        color: "#78bd7e",
-        map: env.grass
-      }, true);
-      const plazaMat = this._makeToonMat({
-        color: "#efe1cb",
-        map: env.plaza
-      }, true);
+      const hubTheme = {
+        grassColor: "#78c479",
+        hillColor: "#50985c",
+        sandColor: "#f4e3c0",
+        foliageColors: ["#ff8ab4", "#ffd13b", "#a78bfa"]
+      };
+      const hubTerrainMat = this._createTerrainShaderMat(hubTheme, {
+        isHub: true,
+        accentColor: "#8f2130"
+      });
+      const hubTerrain = this._createSculptedTerrainMesh(
+        14.6,
+        (dx, dz) => this._evalHubHeight(dx, dz),
+        hubTerrainMat,
+        60,
+        28
+      );
+      hubTerrain.userData = { isHub: true };
+      hub.add(hubTerrain);
+      this.clickTargets.push(hubTerrain);
 
-      const sandBase = this._createExtrudedLayer(13.5, 0.8, 0.65, 0.25, sandMat);
-      sandBase.position.y = 0.55;
-      const grassTop = this._createExtrudedLayer(11.4, 0.8, 0.7, 0.25, grassMat, env.cliffWallMat);
-      grassTop.position.y = 1.3;
-      const plazaCircle = new THREE.Mesh(new THREE.CylinderGeometry(8.1, 8.35, 0.16, 40), plazaMat);
-      plazaCircle.position.y = 1.68;
+      // 環形廣場石欄緣邊（讓建築群與中軸大道自然嵌合於地形）
+      const curbMat = this._makeToonMat({ color: "#ece0cf" }, true);
+      const curbRing = new THREE.Mesh(new THREE.TorusGeometry(8.18, 0.14, 8, 48), curbMat);
+      curbRing.rotation.x = Math.PI / 2;
+      curbRing.position.y = 1.76;
+      curbRing.scale.set(1, 1, 0.7);
+      hub.add(curbRing);
+
+      // 3D 隨風搖曳草原（鋪設於外圍草坡，避開中心石板廣場與南側大道）
+      this._buildInstancedMeadowGrass(
+        hub,
+        null,
+        0.8,
+        true,
+        280,
+        (dx, dz) => this._evalHubHeight(dx, dz),
+        hubTheme
+      );
 
       // 真 3D 南山紅磚白柱鐘塔校園大廳（未載入 hub_3d.glb 前之備援模型）
       const hallGroup = new THREE.Group();
-      hallGroup.position.set(0, 1.74, -4.6);
+      hallGroup.position.set(0, 1.76, -5.6);
       const brickMat = new THREE.MeshStandardMaterial({ color: "#b34b3b", roughness: 0.72 });
       const trimMat = new THREE.MeshStandardMaterial({ color: "#f8fafc", roughness: 0.5 });
       const slateMat = new THREE.MeshStandardMaterial({ color: "#2b425c", roughness: 0.45 });
@@ -3107,11 +3750,11 @@
       });
       this.hubHallGroup = hallGroup;
       hub.add(hallGroup);
-      this._addBoxCollider(0, -4.6, 3.6, 2.35, 0, 8.2);
+      this._addBoxCollider(0, -5.6, 4.4, 2.55, 0, 11.0);
 
       // 中央羅盤許願水池
       const fountain = new THREE.Group();
-      fountain.position.set(0, 1.76, 0.8);
+      fountain.position.set(0, 1.76, 1.0);
       const fRim = new THREE.Mesh(new THREE.CylinderGeometry(0.96, 1.08, 0.24, 24), trimMat);
       fRim.position.y = 0.12;
       const fWater = new THREE.Mesh(new THREE.CylinderGeometry(0.8, 0.8, 0.26, 24), new THREE.MeshBasicMaterial({ color: "#38bdf8" }));
@@ -3130,12 +3773,12 @@
         starRing.rotation.y = t * 0.9;
       });
       hub.add(fountain);
-      this._addCircleCollider(0, 0.8, 0.98, 3.0);
+      this._addCircleCollider(0, 1.0, 0.98, 3.0);
 
       // Hub 自強不息總進度公佈欄 + 校園長椅
       const hubBoard = this._buildCampusBulletinBoard("hub", "🏫 南山自強複習榜", "#8f2130");
-      hubBoard.position.set(4.8, 1.76, 2.8);
-      hubBoard.rotation.y = -0.35;
+      hubBoard.position.set(4.9, 1.76, 3.2);
+      hubBoard.rotation.y = -0.38;
       hubBoard.traverse((c) => {
         if (c.isMesh) {
           c.userData = { isHub: true };
@@ -3143,22 +3786,22 @@
         }
       });
       hub.add(hubBoard);
-      this._addBoxCollider(4.8, 2.8, 0.92, 0.32, -0.35, 3.8);
+      this._addBoxCollider(4.9, 3.2, 0.92, 0.32, -0.38, 3.8);
 
-      [-5.4, 5.4].forEach((bx) => {
+      [-5.6, 5.6].forEach((bx) => {
         const b = this._buildCampusBench();
-        b.position.set(bx, 1.76, -0.3);
+        b.position.set(bx, 1.76, 0.2);
         b.rotation.y = bx < 0 ? 0.55 : -0.55;
         hub.add(b);
-        this._addCircleCollider(bx, -0.3, 0.58, 2.6);
+        this._addCircleCollider(bx, 0.2, 0.58, 2.6);
       });
 
-      // Hub 可愛路燈 & 草坡粉彩花叢
+      // Hub 街燈對稱配置於大道兩側
       const hubLampMat = new THREE.MeshBasicMaterial({ color: "#fef08a" });
       this.nightGlowMaterials.push(hubLampMat);
       [-5.6, 5.6].forEach((lx) => {
         const lampGroup = new THREE.Group();
-        lampGroup.position.set(lx, 1.74, 3.3);
+        lampGroup.position.set(lx, 1.74, 3.8);
         const post = new THREE.Mesh(
           new THREE.CylinderGeometry(0.07, 0.09, 1.65, 8),
           new THREE.MeshStandardMaterial({ color: "#475569" })
@@ -3169,27 +3812,9 @@
         lampGroup.add(post, bulb);
         hub.add(lampGroup);
         this.hubLampGroups.push({ group: lampGroup, rotY: lx < 0 ? 0.25 : Math.PI - 0.25 });
-        this._addCircleCollider(lx, 3.3, 0.28, 3.5);
+        this._addCircleCollider(lx, 3.8, 0.28, 3.5);
       });
-      const flowerColors = ["#ff8ab4", "#ffd13b", "#a78bfa", "#34d399"];
-      for (let i = 0; i < 14; i++) {
-        const ang = (i / 14) * Math.PI * 2 + 0.18;
-        const fr = 9.2 + (i % 3) * 0.55;
-        const flGroup = new THREE.Group();
-        const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.06, 0.25, 6), grassMat);
-        stem.position.y = 0.12;
-        const bud = new THREE.Mesh(
-          new THREE.SphereGeometry(0.18, 8, 8),
-          new THREE.MeshStandardMaterial({ color: flowerColors[i % flowerColors.length], roughness: 0.5 })
-        );
-        bud.scale.set(1.2, 0.72, 1.2);
-        bud.position.y = 0.28;
-        flGroup.add(stem, bud);
-        flGroup.position.set(Math.cos(ang) * fr, 1.56, Math.sin(ang) * fr);
-        hub.add(flGroup);
-      }
 
-      hub.add(sandBase, grassTop, plazaCircle);
       this.scene.add(hub);
       this.hubGroup = hub;
     }
@@ -3311,7 +3936,7 @@
         }
 
         // 橋頭＆島口迎賓彩門拱門（搭配金星徽章）
-        [0.04, 0.96].forEach((gateT) => {
+        [0.10, 0.94].forEach((gateT) => {
           const gDist = startDist + (endDist - startDist) * gateT;
           const gY = 1.05 + Math.sin(gateT * Math.PI) * 1.45;
           const gate = new THREE.Group();
@@ -4027,7 +4652,7 @@
       return { group };
     }
 
-    /* ==================== 3F 造島地形、特色主題小屋、瀑布與森林 ==================== */
+    /* ==================== 3F 原神／星鐵級島嶼雕塑地貌、聖殿中軸與園區造景 ==================== */
     _buildIsland(island, islandIdx) {
       const THREE = window.THREE;
       const group = new THREE.Group();
@@ -4035,80 +4660,53 @@
       const r = island.radius;
       const seed = islandIdx * 1.7 + 0.4;
       const theme = this._getIslandTheme(island);
-
-      // 1F: Coral Reef & Beach
-      const reefMat = this._makeToonMat({
-        color: island.id === "listening" ? "#4778a8" : "#3b89a8",
-        transparent: true,
-        opacity: 0.72
-      }, true);
-      const reefMesh = this._createExtrudedLayer(r * 1.06, seed, 1.2, 0.35, reefMat);
-      reefMesh.position.y = -0.35;
-      group.add(reefMesh);
-
       const env = this._getEnvTextures();
-      const sandTint = new THREE.Color(theme.sandColor || island.colors.sand).lerp(new THREE.Color("#f6e7cb"), 0.2);
-      const sandMat = this._makeToonMat({
-        color: sandTint,
-        map: env.sand
-      }, true);
-      const sandMesh = this._createExtrudedLayer(r * 0.94, seed, 0.7, 0.25, sandMat);
-      sandMesh.position.y = 0.72;
-      sandMesh.userData = { islandId: island.id };
-      group.add(sandMesh);
-      this.clickTargets.push(sandMesh);
+      const heightFn = (dx, dz) => this._evalIslandHeight(island, dx, dz, seed);
 
-      // 2F: Theme-customized Grassy / Scenic Plateau
-      const grassTint = new THREE.Color(theme.grassColor || island.colors.ground);
-      const grassMat = this._makeToonMat({
-        color: grassTint,
-        map: env.grass
-      }, true);
-      const grassMesh = this._createExtrudedLayer(r * 0.78, seed, 0.75, 0.28, grassMat, env.cliffWallMat);
-      grassMesh.position.y = 1.55;
-      grassMesh.userData = { islandId: island.id };
-      group.add(grassMesh);
-      this.clickTargets.push(grassMesh);
+      const alcoveSlots = this._getIslandAlcoveSlots();
+      const activeCount = Math.min(island.nodes ? island.nodes.length : 4, alcoveSlots.length);
+      const alcovesVecs = alcoveSlots.slice(0, activeCount).map((s) => new THREE.Vector3(s.x, s.z, 1.72));
 
-      // 3F: Elevated Scenic Hill & Waterfall Cliff behind the landmark
-      const hillTint = new THREE.Color(theme.hillColor || "#589f63");
-      const hillMat = this._makeToonMat({
-        color: hillTint,
-        map: env.grass
-      }, true);
-      const hillMesh = this._createExtrudedLayer(r * 0.36, seed + 2.1, 1.35, 0.3, hillMat, env.cliffWallMat);
-      hillMesh.position.set(-2.6, 2.95, -2.8);
-      hillMesh.userData = { islandId: island.id };
-      group.add(hillMesh);
-      this.clickTargets.push(hillMesh);
-      // 3D 地標台座安全碰撞圈，防止穿進山丘中央 3D 模型內部
-      this._addCircleCollider(island.position.x - 2.6, island.position.z - 2.8, 3.05, 11.5);
+      // 自然雕塑地形網格 + 無縫 Painterly 地貌 Shader
+      const terrainMat = this._createTerrainShaderMat(theme, {
+        isHub: false,
+        biomeMode: island.id === "geography" ? 1.0 : 0.0,
+        accentColor: island.colors.primary,
+        alcoves: alcovesVecs
+      });
+      const terrainMesh = this._createSculptedTerrainMesh(r * 1.07, heightFn, terrainMat, 68, 34);
+      terrainMesh.userData = { islandId: island.id };
+      group.add(terrainMesh);
+      this.clickTargets.push(terrainMesh);
 
-      // Geography island gets contrasting volcanic rock & glacier ice shelf on 2F/3F
-      if (island.id === "geography") {
-        const lavaSlab = new THREE.Mesh(
-          new THREE.CylinderGeometry(3.4, 4.0, 0.38, 12),
-          new THREE.MeshStandardMaterial({ color: "#3d312d", roughness: 0.9 })
-        );
-        lavaSlab.position.set(-6.4, 1.78, -0.8);
-        const iceShelf = new THREE.Mesh(
-          new THREE.CylinderGeometry(3.2, 3.8, 0.36, 12),
-          new THREE.MeshStandardMaterial({ color: "#dcf6ff", roughness: 0.35 })
-        );
-        iceShelf.position.set(4.8, 1.78, -1.4);
-        group.add(lavaSlab, iceShelf);
-      }
+      // 聖殿高台雕花石欄緣邊（讓建築與高台無縫咬合）
+      const curbMat = this._makeToonMat({ color: "#eadbc6" }, true);
+      const sanctCurb = new THREE.Mesh(new THREE.TorusGeometry(6.85, 0.16, 8, 44), curbMat);
+      sanctCurb.rotation.x = Math.PI / 2;
+      sanctCurb.position.set(0, 2.48, -5.5);
+      sanctCurb.scale.set(1.02, 0.84, 0.65);
+      group.add(sanctCurb);
 
-      // 3F Dynamic Waterfall cascading down the hill cliff!
-      this._buildWaterfall(group, 2.8, -0.5);
+      // 主建築聖殿碰撞圈（可走到大石階與聖殿正門口）
+      this._addCircleCollider(island.position.x, island.position.z - 5.5, 4.35, 12.5);
 
-      // Walkable 2F -> 3F stone stairs on south flank of hill terrace
+      // 3D 隨風搖曳動漫草海
+      this._buildInstancedMeadowGrass(group, island, seed, false, 680, heightFn, theme, alcovesVecs);
+
+      // 主題專屬南側中軸迎賓牌坊 / 拱門
+      this._buildIslandWelcomeGate(group, island, theme);
+
+      // 東側崖壁飛瀑流水
+      this._buildWaterfall(group, 6.2, -3.2);
+
+      // 中軸寬闊迎賓大石階（2F 草坪 -> 3F 主聖殿高台）
       this._buildHillStairs(group, island);
 
-      // Campus Bulletin Board ("自強不息・各科進度榜") & Campus Bench on South Entrance Plaza
+      // 南側迎賓廣場左右兩翼：自強進度榜 ＆ 校園長椅
       const islBoard = this._buildCampusBulletinBoard(island.id, `🏫 ${island.name} · 進度榜`, island.colors.primary);
-      islBoard.position.set(-3.4, 1.78, 8.8);
-      islBoard.rotation.y = 0.18;
+      const bY = heightFn(-4.4, 11.2);
+      islBoard.position.set(-4.4, bY, 11.2);
+      islBoard.rotation.y = 0.42;
       islBoard.traverse((c) => {
         if (c.isMesh) {
           c.userData = { islandId: island.id };
@@ -4116,53 +4714,31 @@
         }
       });
       group.add(islBoard);
-      this._addBoxCollider(island.position.x - 3.4, island.position.z + 8.8, 0.92, 0.32, 0.18, 4.0);
+      this._addBoxCollider(island.position.x - 4.4, island.position.z + 11.2, 0.92, 0.34, 0.42, 4.0);
 
       const bench = this._buildCampusBench();
-      bench.position.set(1.8, 1.78, 9.2);
-      bench.rotation.y = -0.15;
+      bench.position.set(4.4, heightFn(4.4, 11.2), 11.2);
+      bench.rotation.y = -0.42;
       group.add(bench);
-      this._addCircleCollider(island.position.x + 1.8, island.position.z + 9.2, 0.58, 2.6);
+      this._addCircleCollider(island.position.x + 4.4, island.position.z + 11.2, 0.58, 2.8);
 
-      // 可愛草坪花叢點綴放大後的綠地廣場
-      const lawnColors = [island.colors.accent || "#ff9ff3", "#ffd32a", "#7dd3fc", "#ffffff"];
-      for (let fi = 0; fi < 16; fi++) {
-        const ang = (fi / 16) * Math.PI * 2 + seed * 0.25;
-        const fr = r * (0.46 + (fi % 3) * 0.11);
-        const fx = Math.cos(ang) * fr;
-        const fz = Math.sin(ang) * fr;
-        if (Math.hypot(fx + 2.6, fz + 2.8) < r * 0.4) continue;
-        const fGroup = new THREE.Group();
-        const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.06, 0.22, 6), grassMat);
-        stem.position.y = 0.11;
-        const petal = new THREE.Mesh(
-          new THREE.SphereGeometry(0.19, 8, 8),
-          new THREE.MeshStandardMaterial({ color: lawnColors[fi % lawnColors.length], roughness: 0.45 })
-        );
-        petal.scale.set(1.25, 0.72, 1.25);
-        petal.position.y = 0.25;
-        fGroup.add(stem, petal);
-        fGroup.position.set(fx, 1.84, fz);
-        group.add(fGroup);
-      }
-
-      // Wooden Dock on 1F Shoreline
+      // 南側木造棧橋碼頭
       const dockMat = this._makeToonMat({
         color: "#e6b88a",
         map: env.wood
       });
-      const dock = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.18, 2.4), dockMat);
-      dock.position.set(0, 0.55, r * 0.98);
+      const dock = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.18, 2.8), dockMat);
+      dock.position.set(0, 0.46, r * 0.99);
       dock.castShadow = true;
       group.add(dock);
 
-      // Cozy 2F Subject Cottage (Box + Prism Roof + Night-Glowing Glass Window)
-      this._buildSubjectCottage(group, island);
+      // Cozy 西側林蔭主題小屋
+      this._buildSubjectCottage(group, island, heightFn);
 
-      // Glowing Knowledge Treasure Chest on 2F
-      this._buildTreasureChest(group, island);
+      // 東側庭園知識寶箱
+      this._buildTreasureChest(group, island, heightFn);
 
-      // SVG Soft Foam Shoreline Ring
+      // SVG 海岸輕柔浪花圈
       const shoreTex = this._createShoreSvgTexture(island.colors.accent || "#e0f7ff");
       const shorePlaneMat = this._disableOutline(
         new THREE.MeshBasicMaterial({
@@ -4183,26 +4759,27 @@
         shorePlane.rotation.z = t * 0.08 * (islandIdx % 2 === 0 ? 1 : -1);
       });
 
-      // Clustered Forest using randomized scale/rotation
-      this._buildClusteredForest(group, island, r, seed);
+      // 外圍錯落主題森林與青苔岩群
+      this._buildClusteredForest(group, island, r, seed, heightFn);
 
-      // Subject-specific Landmark on 3F Hill Terrace + Special FX
+      // 中軸聖殿主建築備援 3D 地標 ＆ 光影氛圍特效
       const lmRef = this._buildLandmark(group, island);
       this._buildIslandSpecialFX(group, island, lmRef);
 
-      // Progress-linked island growth decorations (flowers -> lanterns -> festival arch)
-      this._buildIslandGrowthProps(group, island, r, seed);
+      // 進度成長階段造景
+      this._buildIslandGrowthProps(group, island, r, seed, heightFn);
 
-      // Central Lighthouse
-      this._buildLighthouse(group, island);
+      // 東北海岬燈塔
+      this._buildLighthouse(group, island, heightFn);
 
-      // SVG Guardian Cat Standee
+      // 迎賓大道旁迎接學生的高精守護貓
       if (island.guardianCat) {
-        const catObj = this._createSvgCatStandee(island.guardianCat, 1.22, {
+        const catObj = this._createSvgCatStandee(island.guardianCat, 1.24, {
           islandId: island.id,
           isCat: true
         });
-        const catPos = new THREE.Vector3(5.6, 1.82, 7.2);
+        const cy = heightFn(3.1, 6.4);
+        const catPos = new THREE.Vector3(3.1, cy, 6.4);
         catObj.group.position.copy(catPos);
         group.add(catObj.group);
         this.islandCats.set(island.id, {
@@ -4211,47 +4788,135 @@
           jumpTime: 0,
           phase: Math.random() * Math.PI * 2
         });
-        this._addCircleCollider(island.position.x + 5.6, island.position.z + 7.2, 0.62, 3.6);
+        this._addCircleCollider(island.position.x + 3.1, island.position.z + 6.4, 0.62, 3.8);
       }
 
-      // Walking Path & Waypoints
-      this._buildWalkingPath(group, island, r);
+      // 庭院學習錨點群 ＆ 大道信箱遇點
+      this._buildWalkingPath(group, island, r, seed, heightFn);
 
       this.scene.add(group);
       this.islandGroups.set(island.id, group);
     }
 
+    _buildIslandWelcomeGate(group, island, theme) {
+      const THREE = window.THREE;
+      const gate = new THREE.Group();
+      gate.position.set(0, this._evalIslandHeight(island, 0, 9.2, 0), 9.2);
+
+      const primaryMat = this._makeToonMat({ color: island.colors.primary || "#d9534f" });
+      const stoneMat = this._makeToonMat({ color: "#ede2d0" });
+      const darkWoodMat = this._makeToonMat({ color: island.id === "chinese" ? "#3a1e18" : island.id === "listening" ? "#1e1b4b" : "#4b382a" });
+      const goldMat = this._makeToonMat({ color: "#ffd32a", emissive: "#d97706", emissiveIntensity: 0.22 });
+      const glowMat = this._disableOutline(new THREE.MeshBasicMaterial({
+        color: island.id === "listening" ? "#38bdf8" : "#fef08a"
+      }));
+      this.nightGlowMaterials.push(glowMat);
+
+      const spanX = 2.95;
+      const colH = 4.25;
+      [-spanX, spanX].forEach((px) => {
+        const plinth = new THREE.Mesh(new THREE.BoxGeometry(0.76, 0.45, 0.76), stoneMat);
+        plinth.position.set(px, 0.22, 0);
+        const pillarMat = island.id === "chinese" ? primaryMat : island.id === "civics" || island.id === "history" ? stoneMat : island.id === "listening" ? darkWoodMat : stoneMat;
+        const pillar = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.25, colH, 12), pillarMat);
+        pillar.position.set(px, 0.45 + colH * 0.5, 0);
+        pillar.castShadow = true;
+        gate.add(plinth, pillar);
+
+        // 門柱暖光宮燈／壁燈
+        const arm = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.08, 0.1), goldMat);
+        arm.position.set(px + (px < 0 ? 0.28 : -0.28), 3.1, 0);
+        const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.15, 10, 10), glowMat);
+        lamp.position.set(px + (px < 0 ? 0.42 : -0.42), 2.95, 0);
+        gate.add(arm, lamp);
+
+        this._addCircleCollider(island.position.x + px, island.position.z + 9.2, 0.42, 6.0);
+      });
+
+      if (island.id === "chinese") {
+        // 中式飛簷牌坊橫梁與朱金匾額
+        const nuki = new THREE.Mesh(new THREE.BoxGeometry(spanX * 2 + 0.8, 0.22, 0.26), primaryMat);
+        nuki.position.y = colH + 0.2;
+        const eave = new THREE.Mesh(new THREE.BoxGeometry(spanX * 2 + 1.75, 0.24, 0.65), darkWoodMat);
+        eave.position.y = colH + 0.58;
+        const plaque = new THREE.Mesh(new THREE.BoxGeometry(1.3, 0.52, 0.28), goldMat);
+        plaque.position.y = colH + 0.22;
+        gate.add(nuki, eave, plaque);
+      } else if (island.id === "english") {
+        // 歐日融合花藝雙柱拱門＋蜂巢金飾
+        const arch = new THREE.Mesh(new THREE.TorusGeometry(spanX, 0.18, 10, 28, Math.PI), primaryMat);
+        arch.position.y = colH + 0.25;
+        const hexTop = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.42, 0.22, 6), goldMat);
+        hexTop.rotation.x = Math.PI / 2;
+        hexTop.position.y = colH + spanX + 0.35;
+        gate.add(arch, hexTop);
+      } else if (island.id === "listening") {
+        // 星鐵霓虹音波拱門
+        const bar = new THREE.Mesh(new THREE.BoxGeometry(spanX * 2 + 0.6, 0.26, 0.32), darkWoodMat);
+        bar.position.y = colH + 0.35;
+        const neonArc = new THREE.Mesh(new THREE.TorusGeometry(spanX * 0.85, 0.08, 8, 32, Math.PI), glowMat);
+        neonArc.position.y = colH + 0.35;
+        gate.add(bar, neonArc);
+      } else if (island.id === "geography") {
+        // 探險石門＋中央金色羅盤徽章
+        const beam = new THREE.Mesh(new THREE.BoxGeometry(spanX * 2 + 1.0, 0.36, 0.44), darkWoodMat);
+        beam.position.y = colH + 0.4;
+        const compass = new THREE.Mesh(new THREE.OctahedronGeometry(0.42, 0), goldMat);
+        compass.position.y = colH + 0.78;
+        gate.add(beam, compass);
+      } else {
+        // 歷史／公民古典石雕凱旋山牆拱門
+        const beam = new THREE.Mesh(new THREE.BoxGeometry(spanX * 2 + 0.85, 0.32, 0.44), stoneMat);
+        beam.position.y = colH + 0.36;
+        const arch = new THREE.Mesh(new THREE.TorusGeometry(spanX * 0.78, 0.15, 8, 28, Math.PI), goldMat);
+        arch.position.y = colH + 0.36;
+        const emblem = new THREE.Mesh(new THREE.OctahedronGeometry(0.32, 0), goldMat);
+        emblem.position.y = colH + 0.6;
+        gate.add(beam, arch, emblem);
+      }
+
+      group.add(gate);
+    }
+
     _buildHillStairs(group, island) {
       const THREE = window.THREE;
-      const env = this._getEnvTextures();
       const stairGroup = new THREE.Group();
       const stepCount = 8;
-      const startZ = 6.35;
-      const endZ = 3.75;
+      const startZ = 3.95;
+      const endZ = 0.45;
       const startY = 1.84;
-      const endY = 3.22;
-      const stepMat = new THREE.MeshStandardMaterial({
-        color: "#f9efe0",
-        map: env.cliffTile,
-        roughness: 0.78
-      });
-      const trimMat = new THREE.MeshStandardMaterial({ color: island.colors.primary, roughness: 0.55 });
+      const endY = 2.48;
+      const stepMat = this._makeToonMat({ color: "#f3ead9" });
+      const railStoneMat = this._makeToonMat({ color: "#e5d7c1" });
+      const trimMat = this._makeToonMat({ color: island.colors.primary || "#8f2130" });
+      const lanternGlow = this._disableOutline(new THREE.MeshBasicMaterial({ color: "#fef08a" }));
+      this.nightGlowMaterials.push(lanternGlow);
 
       for (let i = 0; i < stepCount; i++) {
         const t = (i + 0.5) / stepCount;
-        const stepH = 0.24;
-        const step = new THREE.Mesh(new THREE.BoxGeometry(2.05, stepH, 0.42), stepMat);
-        step.position.set(-2.2, startY + t * (endY - startY) - stepH * 0.42, startZ + t * (endZ - startZ));
-        step.castShadow = true;
+        const stepH = 0.16;
+        const step = new THREE.Mesh(new THREE.BoxGeometry(4.1, stepH, 0.52), stepMat);
+        step.position.set(0, startY + t * (endY - startY) - stepH * 0.35, startZ + t * (endZ - startZ));
         step.receiveShadow = true;
         stairGroup.add(step);
       }
 
-      [-1.08, 1.08].forEach((rx) => {
-        const rail = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.26, 2.75), trimMat);
-        rail.position.set(-2.2 + rx, (startY + endY) * 0.5 + 0.18, (startZ + endZ) * 0.5);
+      [-2.15, 2.15].forEach((rx) => {
+        const rail = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.38, 3.75), railStoneMat);
+        rail.position.set(rx, (startY + endY) * 0.5 + 0.24, (startZ + endZ) * 0.5);
         rail.rotation.x = Math.atan2(endY - startY, startZ - endZ);
         stairGroup.add(rail);
+
+        [startZ + 0.15, endZ - 0.1].forEach((pz, pIdx) => {
+          const baseY = pIdx === 0 ? startY : endY;
+          const post = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.92, 0.38), railStoneMat);
+          post.position.set(rx, baseY + 0.46, pz);
+          const cap = new THREE.Mesh(new THREE.SphereGeometry(0.16, 10, 10), lanternGlow);
+          cap.position.set(rx, baseY + 1.02, pz);
+          const band = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.1, 0.42), trimMat);
+          band.position.set(rx, baseY + 0.78, pz);
+          stairGroup.add(post, band, cap);
+        });
       });
       group.add(stairGroup);
     }
@@ -4259,31 +4924,32 @@
     _buildWaterfall(group, x, z) {
       const THREE = window.THREE;
       const wfGroup = new THREE.Group();
-      wfGroup.position.set(x + 1.5, 2.0, z + 0.55);
+      wfGroup.position.set(x, 1.88, z);
 
       const streamMat = this._disableOutline(
         new THREE.MeshBasicMaterial({
           color: "#7dd3fc",
           transparent: true,
-          opacity: 0.78
+          opacity: 0.76
         })
       );
-      const stream = new THREE.Mesh(new THREE.BoxGeometry(0.85, 1.55, 0.25), streamMat);
-      stream.position.y = 0.65;
-      stream.rotation.x = 0.25;
+      const stream = new THREE.Mesh(new THREE.BoxGeometry(0.95, 1.05, 0.26), streamMat);
+      stream.position.y = 0.42;
+      stream.rotation.y = -0.35;
+      stream.rotation.x = 0.28;
       wfGroup.add(stream);
 
       const splashPool = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.75, 0.85, 0.14, 14),
+        new THREE.CylinderGeometry(0.95, 1.08, 0.12, 16),
         this._disableOutline(new THREE.MeshBasicMaterial({ color: "#bae6fd", transparent: true, opacity: 0.72 }))
       );
-      splashPool.position.set(0, -0.05, 0.22);
+      splashPool.position.set(0.15, -0.02, 0.3);
       wfGroup.add(splashPool);
 
       const foams = [];
       for (let i = 0; i < 6; i++) {
         const f = new THREE.Mesh(
-          new THREE.SphereGeometry(0.12, 8, 8),
+          new THREE.SphereGeometry(0.11, 8, 8),
           this._disableOutline(new THREE.MeshBasicMaterial({ color: "#ffffff", transparent: true, opacity: 0.82 }))
         );
         wfGroup.add(f);
@@ -4293,22 +4959,33 @@
       this.ambientUpdaters.push((t) => {
         foams.forEach((f, i) => {
           const c = (t * 1.6 + i / 6) % 1;
-          f.position.set(((i % 3) - 1) * 0.28, Math.sin(c * Math.PI) * 0.45, 0.15 + c * 0.45);
-          f.scale.setScalar(1.1 - c * 0.6);
+          f.position.set(((i % 3) - 1) * 0.28 + 0.15, Math.sin(c * Math.PI) * 0.38, 0.22 + c * 0.45);
+          f.scale.setScalar(1.05 - c * 0.6);
         });
       });
 
       group.add(wfGroup);
     }
 
-    _buildSubjectCottage(group, island) {
+    _buildSubjectCottage(group, island, heightFn) {
       const THREE = window.THREE;
       const theme = this._getIslandTheme(island);
+      const hx = -11.4;
+      const hz = 5.4;
+      const hy = heightFn ? heightFn(hx, hz) : 1.84;
       const house = new THREE.Group();
-      house.position.set(-9.6, 1.85, 4.4);
-      house.rotation.y = 0.45;
+      house.position.set(hx, hy, hz);
+      house.rotation.y = 0.62;
+
+      const patio = new THREE.Mesh(
+        new THREE.CylinderGeometry(1.9, 2.05, 0.14, 16),
+        this._makeToonMat({ color: "#e8dcc8" }, true)
+      );
+      patio.position.y = 0.04;
+      house.add(patio);
 
       const visualSlot = new THREE.Group();
+      visualSlot.position.y = 0.08;
       const fallbackGroup = new THREE.Group();
       fallbackGroup.scale.setScalar(1.24);
 
@@ -4344,7 +5021,6 @@
 
       fallbackGroup.add(wall, roof, win1, win2, door);
 
-      // Unique architectural accent per subject cottage
       if (island.id === "chinese") {
         const finial = new THREE.Mesh(new THREE.SphereGeometry(0.14, 10, 10), this._makeToonMat({ color: "#ffd32a" }));
         finial.position.y = 1.72;
@@ -4381,21 +5057,34 @@
       });
       group.add(house);
       this.islandCottageSlots.push({ house, slot: visualSlot, island, winMat });
-      this._addBoxCollider(island.position.x - 5.6, island.position.z + 2.8, 0.88, 0.78, 0.45, 3.6);
+      this._addBoxCollider(island.position.x + hx, island.position.z + hz, 1.05, 0.95, 0.62, 4.0);
     }
 
-    _buildTreasureChest(group, island) {
+    _buildTreasureChest(group, island, heightFn) {
       const THREE = window.THREE;
+      const cx = 11.6;
+      const cz = 1.8;
+      const cy = heightFn ? heightFn(cx, cz) : 1.84;
+      const chestWrap = new THREE.Group();
+      chestWrap.position.set(cx, cy, cz);
+
+      const pedestal = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.75, 0.92, 0.18, 12),
+        this._makeToonMat({ color: "#e5d7c1" }, true)
+      );
+      pedestal.position.y = 0.08;
+      chestWrap.add(pedestal);
+
       const chest = new THREE.Group();
-      chest.position.set(9.2, 1.88, -1.2);
+      chest.position.y = 0.16;
       const box = new THREE.Mesh(
         new THREE.BoxGeometry(0.7, 0.48, 0.52),
-        new THREE.MeshStandardMaterial({ color: "#a0522d", roughness: 0.7 })
+        this._makeToonMat({ color: "#a0522d" })
       );
       box.position.y = 0.24;
       const trim = new THREE.Mesh(
         new THREE.BoxGeometry(0.74, 0.14, 0.56),
-        new THREE.MeshStandardMaterial({ color: "#ffd32a", metalness: 0.5, roughness: 0.3 })
+        this._makeToonMat({ color: "#ffd32a", emissive: "#d97706", emissiveIntensity: 0.2 })
       );
       trim.position.y = 0.42;
       chest.add(box, trim);
@@ -4405,36 +5094,47 @@
           this.clickTargets.push(c);
         }
       });
-      group.add(chest);
+      chestWrap.add(chest);
+      group.add(chestWrap);
       this.islandChests.push({ chest, island });
-      this._addBoxCollider(island.position.x + 9.2, island.position.z - 1.2, 0.46, 0.38, 0, 2.8);
+      this._addBoxCollider(island.position.x + cx, island.position.z + cz, 0.52, 0.44, 0, 2.8);
     }
 
-    _buildClusteredForest(group, island, r, seed) {
+    _buildClusteredForest(group, island, r, seed, heightFn) {
       const THREE = window.THREE;
       const theme = this._getIslandTheme(island);
       const trunkMat = this._makeToonMat({
         color: theme.treeStyle === "crystal" ? "#64748b" : "#8d6346"
       });
+      const rockMat = this._makeToonMat({ color: island.id === "geography" ? "#544845" : "#a3998b" });
       const palette = theme.foliageColors || [island.colors.ground];
+      const alcoves = this._getIslandAlcoveSlots();
 
-      const treeAngles = [Math.PI * 0.84, Math.PI * 1.0, Math.PI * 1.18, Math.PI * 1.38, Math.PI * 1.6, Math.PI * 1.8, Math.PI * 1.96];
-      treeAngles.forEach((ang, idx) => {
-        const distFactor = 0.54 + ((idx * 3 + Math.round(seed)) % 3) * 0.08;
-        const tx = Math.cos(ang) * r * distFactor;
-        const tz = Math.sin(ang) * r * distFactor;
-        if (Math.hypot(tx + 2.2, tz + 2.5) < r * 0.46) return;
-        if (Math.hypot(tx - 8.0, tz + 5.8) < 3.8 || Math.hypot(tx + 9.6, tz - 4.4) < 3.8) return;
+      // 沿島嶼外圍草坡錯落配置林木，完整保留中軸大道與聖殿開闊視野
+      const spots = [
+        [-12.6, 0.6],
+        [-12.0, -4.6],
+        [-9.2, -10.8],
+        [-4.2, -13.2],
+        [4.2, -13.2],
+        [8.6, -10.6],
+        [-9.6, 9.2],
+        [12.4, 5.8]
+      ];
+      spots.forEach(([tx, tz], idx) => {
+        if (Math.hypot(tx / 7.6, (tz + 5.5) / 6.4) < 1.05) return;
+        for (let ai = 0; ai < alcoves.length; ai++) {
+          if (Math.hypot(tx - alcoves[ai].x, tz - alcoves[ai].z) < 2.6) return;
+        }
         const tree = new THREE.Group();
         const visualSlot = new THREE.Group();
-        const scale = 0.78 + ((idx + Math.floor(seed)) % 3) * 0.16;
+        const scale = 0.92 + ((idx + Math.floor(seed)) % 3) * 0.22;
         const leafColor = palette[idx % palette.length];
         const leafMat = this._makeToonMat({ color: leafColor });
 
-        if (theme.treeStyle === "ice_lava" && idx < 2) {
-          // Volcanic obsidian boulders on left flank of Geography island
+        if (theme.treeStyle === "ice_lava" && idx < 3) {
           const rock = new THREE.Mesh(
-            new THREE.DodecahedronGeometry(0.68, 0),
+            new THREE.DodecahedronGeometry(0.75, 0),
             this._makeToonMat({ color: "#5c4d45" })
           );
           rock.position.y = 0.42;
@@ -4448,13 +5148,12 @@
         } else if (theme.treeStyle === "cypress") {
           const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.16, 0.55, 8), trunkMat);
           trunk.position.y = 0.28;
-          const cone = new THREE.Mesh(new THREE.ConeGeometry(0.55, 1.55, 12), leafMat);
-          cone.position.y = 1.15;
+          const cone = new THREE.Mesh(new THREE.ConeGeometry(0.55, 1.65, 12), leafMat);
+          cone.position.y = 1.18;
           cone.castShadow = true;
           visualSlot.add(trunk, cone);
           this.islandTreeSlots.push({ slot: visualSlot, isPine: true, tint: leafColor });
         } else if (theme.treeStyle === "ice_lava") {
-          // Layered snowy spruce pines on right side of Geography island
           const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.17, 0.65, 8), trunkMat);
           trunk.position.y = 0.32;
           const tier1 = new THREE.Mesh(new THREE.ConeGeometry(0.66, 0.85, 10), this._makeToonMat({ color: "#4d9189" }));
@@ -4475,7 +5174,6 @@
           visualSlot.add(trunk, prism);
           this.islandTreeSlots.push({ slot: visualSlot, isPine: false, tint: leafColor });
         } else {
-          // Cherry blossom / Honey meadow / Golden ginkgo multi-puff canopies
           const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.2, 0.82, 10), trunkMat);
           trunk.position.y = 0.4;
           const crown = new THREE.Mesh(new THREE.DodecahedronGeometry(0.72, 1), leafMat);
@@ -4492,46 +5190,34 @@
           this.islandTreeSlots.push({ slot: visualSlot, isPine: false, tint: leafColor });
         }
 
-        tree.add(visualSlot);
+        // 樹下伴生自然山石，消除「樹幹直接插在地板」的突兀感
+        const boulder = new THREE.Mesh(new THREE.DodecahedronGeometry(0.36, 0), rockMat);
+        boulder.scale.set(1.2, 0.72, 1.0);
+        boulder.position.set(0.42, 0.16, 0.28);
+        boulder.rotation.set(0.2, idx, 0.1);
+        tree.add(visualSlot, boulder);
         tree.scale.setScalar(scale);
-        tree.position.set(tx, 1.78, tz);
+        const ty = heightFn ? heightFn(tx, tz) - 0.04 : 1.78;
+        tree.position.set(tx, ty, tz);
         group.add(tree);
-        this._addCircleCollider(island.position.x + tx, island.position.z + tz, 0.44 * scale, 3.6);
+        this._addCircleCollider(island.position.x + tx, island.position.z + tz, 0.48 * scale, 4.0);
       });
     }
 
-    _buildWalkingPath(group, island, r) {
+    _buildWalkingPath(group, island, r, seed, heightFn) {
       const THREE = window.THREE;
-      const pathRadius = r * 0.69;
-
-      // Textured cobblestone campus promenade walkway
-      const env = this._getEnvTextures();
-      const pathRingMat = this._makeToonMat({
-        color: "#ead6bc",
-        map: env.pathStone,
-        transparent: true,
-        opacity: 0.95,
-        side: THREE.DoubleSide
-      }, true);
-      const pathRing = new THREE.Mesh(
-        new THREE.RingGeometry(pathRadius - 0.65, pathRadius + 0.65, 56),
-        pathRingMat
-      );
-      pathRing.rotation.x = -Math.PI / 2;
-      pathRing.position.y = 1.86;
-      group.add(pathRing);
-
+      const alcoves = this._getIslandAlcoveSlots();
       const waypoints = [];
-      const nodeCount = island.nodes.length;
-      const pawTex = this._createPawBadgeTexture("#ffffff", island.colors.primary);
 
       island.nodes.forEach((node, idx) => {
-        const nodeAngle = -Math.PI * 0.15 + (idx / Math.max(nodeCount, 1)) * Math.PI * 1.85;
-        const nx = Math.cos(nodeAngle) * pathRadius;
-        const nz = Math.sin(nodeAngle) * pathRadius;
-        this._buildNodeBeacon(group, island.id, node, nx, nz, pawTex, nodeAngle);
-        this._addCircleCollider(island.position.x + nx, island.position.z + nz, 0.58, 3.5);
-        waypoints.push({ angle: nodeAngle, nodeId: node.id, kind: "node" });
+        const slot = alcoves[idx % alcoves.length];
+        const nx = slot.x;
+        const nz = slot.z;
+        const ny = heightFn ? heightFn(nx, nz) : 1.84;
+        const nodeAngle = Math.atan2(nz, nx);
+        this._buildNodeBeacon(group, island, node, nx, ny, nz, slot.face);
+        this._addCircleCollider(island.position.x + nx, island.position.z + nz, 0.64, 4.2);
+        waypoints.push({ x: nx, z: nz, angle: nodeAngle, nodeId: node.id, kind: "node" });
         this.interactableSpots.push({
           type: "node",
           kind: "node",
@@ -4542,28 +5228,35 @@
           z: island.position.z + nz
         });
 
-        const encAngle = nodeAngle + (Math.PI * 1.85) / (nodeCount * 2);
-        const ex = Math.cos(encAngle) * pathRadius;
-        const ez = Math.sin(encAngle) * pathRadius;
+        // 遇點郵筒整齊配置於中軸大道兩側，貼地成排
+        const side = idx % 2 === 0 ? -1 : 1;
+        const ex = side * 2.55;
+        const ez = 7.4 - Math.floor(idx / 2) * 3.1;
+        const ey = heightFn ? heightFn(ex, ez) : 1.84;
         const mailbox = new THREE.Group();
-        mailbox.position.set(ex, 1.86, ez);
+        mailbox.position.set(ex, ey, ez);
+        const mPad = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.42, 0.48, 0.1, 10),
+          this._makeToonMat({ color: "#e5d7c1" }, true)
+        );
+        mPad.position.y = 0.04;
         const mPost = new THREE.Mesh(
           new THREE.CylinderGeometry(0.05, 0.06, 0.62, 8),
-          new THREE.MeshStandardMaterial({ color: "#475569" })
+          this._makeToonMat({ color: "#475569" })
         );
-        mPost.position.y = 0.31;
+        mPost.position.y = 0.35;
         const mBox = new THREE.Mesh(
           new THREE.BoxGeometry(0.38, 0.28, 0.26),
-          new THREE.MeshStandardMaterial({ color: "#fbbf24", emissive: "#d97706", emissiveIntensity: 0.35 })
+          this._makeToonMat({ color: "#fbbf24", emissive: "#d97706", emissiveIntensity: 0.3 })
         );
-        mBox.position.y = 0.68;
+        mBox.position.y = 0.72;
         const mTop = new THREE.Mesh(
           new THREE.ConeGeometry(0.24, 0.16, 4),
-          new THREE.MeshStandardMaterial({ color: "#b91c1c" })
+          this._makeToonMat({ color: "#b91c1c" })
         );
         mTop.rotation.y = Math.PI / 4;
-        mTop.position.y = 0.88;
-        mailbox.add(mPost, mBox, mTop);
+        mTop.position.y = 0.92;
+        mailbox.add(mPad, mPost, mBox, mTop);
         mailbox.traverse((c) => {
           if (c.isMesh) {
             c.userData = { islandId: island.id, nodeId: node.id, isEncounter: true, isMailboxProp: true };
@@ -4575,10 +5268,10 @@
           mailbox,
           islandId: island.id,
           nodeId: node.id,
-          rotY: Math.atan2(-ex, -ez) + 0.35
+          rotY: side < 0 ? Math.PI * 0.42 : -Math.PI * 0.42
         });
 
-        waypoints.push({ angle: encAngle, nodeId: node.id, kind: "encounter" });
+        waypoints.push({ x: ex, z: ez, angle: Math.atan2(ez, ex), nodeId: node.id, kind: "encounter" });
         this.interactableSpots.push({
           type: "node",
           kind: "encounter",
@@ -4590,14 +5283,14 @@
         });
       });
 
-      this.islandPaths.set(island.id, { radius: pathRadius, waypoints });
+      this.islandPaths.set(island.id, { radius: r * 0.45, waypoints });
     }
 
     _buildLandmark(group, island) {
       const THREE = window.THREE;
       const lmGroup = new THREE.Group();
-      lmGroup.position.set(-2.2, 3.02, -2.5); // Elevated onto enlarged 3F Hill Terrace!
-      lmGroup.scale.setScalar(1.22);
+      lmGroup.position.set(0, 2.46, -5.5); // 置中於北側聖殿高台（未載入 GLB 時之備援地標）
+      lmGroup.scale.setScalar(1.65);
 
       const theme = this._getIslandTheme(island);
       const plinth = new THREE.Mesh(
@@ -4875,7 +5568,6 @@
 
       group.add(lmGroup);
       this.landmarkGroups.set(island.id, lmGroup);
-      this._addCircleCollider(island.position.x - 2.2, island.position.z - 2.5, 1.92, 7.0);
       return refs;
     }
 
@@ -5061,33 +5753,42 @@
       }
     }
 
-    _buildIslandGrowthProps(group, island, r, seed) {
+    _buildIslandGrowthProps(group, island, r, seed, heightFn) {
       const THREE = window.THREE;
       const growthRoot = new THREE.Group();
       const theme = this._getIslandTheme(island);
+      const alcoves = this._getIslandAlcoveSlots();
 
-      // Stage 1 (>=33%): Blooming flower patches & fluttering pastel butterflies
+      // Stage 1 (>=33%): 低矮貼地花叢與飛舞粉彩蝴蝶
       const stage1 = new THREE.Group();
       stage1.visible = false;
       const stemMat = this._makeToonMat({ color: "#65a35e" });
       const bloomCols = theme.foliageColors || ["#f9b4c4", "#ffd32a", "#a7f3d0"];
-      for (let i = 0; i < 10; i++) {
-        const ang = (i / 10) * Math.PI * 2 + seed * 0.45;
-        const rad = r * (0.42 + (i % 3) * 0.08);
+      for (let i = 0; i < 12; i++) {
+        const ang = (i / 12) * Math.PI * 2 + seed * 0.45;
+        const rad = r * (0.44 + (i % 3) * 0.1);
         const fx = Math.cos(ang) * rad;
         const fz = Math.sin(ang) * rad;
-        if (Math.hypot(fx + 2.6, fz + 2.8) < r * 0.42) continue;
+        if (Math.abs(fx) < 2.8 && fz > -4.5) continue;
+        if (Math.hypot(fx / 7.8, (fz + 5.5) / 6.5) < 1.02) continue;
+        let nearAlcove = false;
+        for (let ai = 0; ai < alcoves.length; ai++) {
+          if (Math.hypot(fx - alcoves[ai].x, fz - alcoves[ai].z) < 2.2) { nearAlcove = true; break; }
+        }
+        if (nearAlcove) continue;
         const fl = new THREE.Group();
-        const st = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.05, 0.24, 6), stemMat);
-        st.position.y = 0.12;
-        const head = new THREE.Mesh(
-          new THREE.SphereGeometry(0.22, 8, 8),
-          this._makeToonMat({ color: bloomCols[i % bloomCols.length] })
-        );
-        head.scale.set(1.25, 0.72, 1.25);
-        head.position.y = 0.28;
-        fl.add(st, head);
-        fl.position.set(fx, 1.84, fz);
+        const leaf = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.28, 0.06, 7), stemMat);
+        leaf.position.y = 0.03;
+        const petalMat = this._makeToonMat({ color: bloomCols[i % bloomCols.length] });
+        for (let p = 0; p < 3; p++) {
+          const pa = (p / 3) * Math.PI * 2;
+          const blossom = new THREE.Mesh(new THREE.DodecahedronGeometry(0.11, 0), petalMat);
+          blossom.position.set(Math.cos(pa) * 0.12, 0.12, Math.sin(pa) * 0.12);
+          fl.add(blossom);
+        }
+        fl.add(leaf);
+        const fy = heightFn ? heightFn(fx, fz) : 1.84;
+        fl.position.set(fx, fy, fz);
         stage1.add(fl);
       }
       const butterflies = [];
@@ -5106,7 +5807,7 @@
         if (!stage1.visible) return;
         butterflies.forEach((entry, idx) => {
           const a = t * 0.85 + entry.ph;
-          entry.bf.position.set(Math.cos(a) * (3.2 + idx * 1.4), 2.75 + Math.sin(t * 2.6 + entry.ph) * 0.35, Math.sin(a) * (3.2 + idx * 1.4));
+          entry.bf.position.set(Math.cos(a) * (4.0 + idx * 1.5), 2.95 + Math.sin(t * 2.6 + entry.ph) * 0.35, Math.sin(a) * (4.0 + idx * 1.5));
           entry.bf.rotation.y = -a;
           const flap = Math.sin(t * 14 + entry.ph) * 0.75;
           entry.wL.rotation.y = flap;
@@ -5114,46 +5815,47 @@
         });
       });
 
-      // Stage 2 (>=66%): Warm evening promenade lanterns
+      // Stage 2 (>=66%): 沿園區與參道點亮的暖光庭園燈柱
       const stage2 = new THREE.Group();
       stage2.visible = false;
       const postMat = this._makeToonMat({ color: "#8d6346" });
-      for (let l = 0; l < 6; l++) {
-        const ang = (l / 6) * Math.PI * 2 + 0.3;
-        const rad = r * 0.78;
-        const lx = Math.cos(ang) * rad;
-        const lz = Math.sin(ang) * rad;
+      [
+        [-2.7, 7.0], [2.7, 7.0],
+        [-2.7, 2.2], [2.7, 2.2],
+        [-6.6, 4.2], [7.2, 4.2]
+      ].forEach(([lx, lz]) => {
         const lantern = new THREE.Group();
-        const post = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.06, 1.05, 8), postMat);
-        post.position.y = 0.52;
+        const post = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.07, 1.25, 8), postMat);
+        post.position.y = 0.62;
         const glowMat = this._disableOutline(new THREE.MeshBasicMaterial({ color: "#fef08a" }));
         this.nightGlowMaterials.push(glowMat);
-        const orb = new THREE.Mesh(new THREE.SphereGeometry(0.16, 10, 10), glowMat);
-        orb.position.y = 1.1;
+        const orb = new THREE.Mesh(new THREE.SphereGeometry(0.18, 10, 10), glowMat);
+        orb.position.y = 1.32;
         lantern.add(post, orb);
-        lantern.position.set(lx, 1.84, lz);
+        const ly = heightFn ? heightFn(lx, lz) : 1.84;
+        lantern.position.set(lx, ly, lz);
         stage2.add(lantern);
-      }
+      });
 
-      // Stage 3 (100% conquered): Hill summit festival pennant arch
+      // Stage 3 (100% conquered): 中軸大石階頂端慶典彩旗拱門
       const stage3 = new THREE.Group();
       stage3.visible = false;
       const archPillarMat = this._makeToonMat({ color: island.colors.primary || "#e07a5f" });
-      [-1.35, 1.35].forEach((ax) => {
-        const col = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.11, 2.1, 10), archPillarMat);
-        col.position.set(-2.2 + ax, 4.1, 3.3);
+      [-2.25, 2.25].forEach((ax) => {
+        const col = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.13, 3.2, 10), archPillarMat);
+        col.position.set(ax, 2.48 + 1.6, 0.65);
         stage3.add(col);
       });
-      const beam = new THREE.Mesh(new THREE.BoxGeometry(3.1, 0.22, 0.2), this._makeToonMat({ color: "#ffd32a" }));
-      beam.position.set(-2.2, 5.15, 3.3);
+      const beam = new THREE.Mesh(new THREE.BoxGeometry(4.9, 0.24, 0.24), this._makeToonMat({ color: "#ffd32a" }));
+      beam.position.set(0, 5.75, 0.65);
       stage3.add(beam);
-      for (let p = 0; p < 5; p++) {
+      for (let p = 0; p < 7; p++) {
         const pen = new THREE.Mesh(
-          new THREE.ConeGeometry(0.16, 0.32, 4),
+          new THREE.ConeGeometry(0.18, 0.38, 4),
           this._makeToonMat({ color: p % 2 === 0 ? "#ff8ab4" : "#38bdf8" })
         );
         pen.rotation.x = Math.PI;
-        pen.position.set(-3.1 + p * 0.45, 4.92, 3.3);
+        pen.position.set(-1.65 + p * 0.55, 5.48, 0.65);
         stage3.add(pen);
       }
 
@@ -5162,12 +5864,23 @@
       this.islandGrowthGroups.set(island.id, { stage1, stage2, stage3 });
     }
 
-    _buildLighthouse(group, island) {
+    _buildLighthouse(group, island, heightFn) {
       const THREE = window.THREE;
+      const lx = 11.2;
+      const lz = -6.6;
+      const ly = heightFn ? heightFn(lx, lz) : 1.84;
       const lhGroup = new THREE.Group();
-      lhGroup.position.set(8.0, 1.82, -5.8);
+      lhGroup.position.set(lx, ly, lz);
+
+      const plinth = new THREE.Mesh(
+        new THREE.CylinderGeometry(1.18, 1.38, 0.16, 14),
+        this._makeToonMat({ color: "#e6dac6" }, true)
+      );
+      plinth.position.y = 0.06;
+      lhGroup.add(plinth);
 
       const visualSlot = new THREE.Group();
+      visualSlot.position.y = 0.1;
       const fallbackModel = new THREE.Group();
       fallbackModel.scale.setScalar(1.62);
 
@@ -5197,7 +5910,7 @@
         new THREE.SphereGeometry(0.42, 14, 14),
         this._disableOutline(new THREE.MeshBasicMaterial({ color: "#7f8c8d" }))
       );
-      bulb.position.y = 4.28;
+      bulb.position.y = 4.38;
 
       const beamGeo = new THREE.CylinderGeometry(0.24, 2.2, 11.5, 16, 1, true);
       const beamMat = this._disableOutline(
@@ -5210,7 +5923,7 @@
         })
       );
       const beam = new THREE.Mesh(beamGeo, beamMat);
-      beam.position.y = 9.8;
+      beam.position.y = 9.9;
 
       lhGroup.add(visualSlot, bulb, beam);
       lhGroup.traverse((child) => {
@@ -5223,34 +5936,83 @@
       group.add(lhGroup);
       this.lighthouseMeshes.set(island.id, { beam, bulb });
       this.islandLighthouseSlots.push({ lhGroup, slot: visualSlot, island });
-      this._addCircleCollider(island.position.x + 8.0, island.position.z - 5.8, 0.78, 5.6);
+      this._addCircleCollider(island.position.x + lx, island.position.z + lz, 0.88, 5.8);
     }
 
-    _buildNodeBeacon(group, islandId, node, x, z, pawTex, angle) {
+    _buildNodeBeacon(group, island, node, x, y, z, faceRotY = 0) {
       const THREE = window.THREE;
+      const islandId = island.id;
+      const accentHex = (island.colors && island.colors.primary) || "#f59e0b";
       const nodeGroup = new THREE.Group();
-      nodeGroup.position.set(x, 1.82, z);
+      nodeGroup.position.set(x, y, z);
+      nodeGroup.rotation.y = faceRotY || 0;
 
-      // Campus courtyard cream-stone pad + paw crest
-      const pad = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.86, 0.96, 0.16, 8),
-        this._makeToonMat({ color: "#efe2d1" })
+      // 原神／星鐵風：雙層圓石庭院台基 ＋ 符文金邊環
+      const stoneMat = this._makeToonMat({ color: "#efe4d2" }, true);
+      const wallStoneMat = this._makeToonMat({ color: "#d9ccb6" }, true);
+      const trimMat = this._makeToonMat({ color: accentHex }, true);
+
+      const terrace = new THREE.Mesh(new THREE.CylinderGeometry(1.42, 1.56, 0.14, 24), stoneMat);
+      terrace.position.y = 0.07;
+      terrace.receiveShadow = true;
+      terrace.userData = { islandId, nodeId: node.id };
+      nodeGroup.add(terrace);
+      this.clickTargets.push(terrace);
+
+      const runeRing = new THREE.Mesh(
+        new THREE.RingGeometry(1.16, 1.26, 28),
+        this._disableOutline(new THREE.MeshBasicMaterial({
+          color: accentHex,
+          transparent: true,
+          opacity: 0.45,
+          side: THREE.DoubleSide
+        }))
       );
-      pad.position.y = 0.08;
-      pad.userData = { islandId, nodeId: node.id };
-      nodeGroup.add(pad);
-      this.clickTargets.push(pad);
+      runeRing.rotation.x = -Math.PI / 2;
+      runeRing.position.y = 0.145;
+      nodeGroup.add(runeRing);
 
-      const badge = new THREE.Mesh(
-        new THREE.CircleGeometry(0.68, 20),
-        this._disableOutline(new THREE.MeshBasicMaterial({ map: pawTex, transparent: true }))
+      // 半圍合石砌矮牆弧牆（背後與左右，正向留給學生走進書桌）
+      const halfWall = new THREE.Mesh(
+        new THREE.TorusGeometry(1.36, 0.17, 7, 18, Math.PI),
+        wallStoneMat
       );
-      badge.rotation.x = -Math.PI / 2;
-      badge.position.y = 0.17;
-      nodeGroup.add(badge);
+      halfWall.rotation.x = -Math.PI / 2;
+      halfWall.position.y = 0.24;
+      nodeGroup.add(halfWall);
 
-      // Desk visual slot (can be upgraded seamlessly to prop_node_desk.glb)
+      const wallCap = new THREE.Mesh(
+        new THREE.TorusGeometry(1.36, 0.19, 6, 18, Math.PI),
+        trimMat
+      );
+      wallCap.rotation.x = -Math.PI / 2;
+      wallCap.position.y = 0.42;
+      wallCap.scale.set(1, 1, 0.45);
+      nodeGroup.add(wallCap);
+
+      // 兩側低矮庭園灌木與左後方石燈籠
+      const shrubMat = this._makeToonMat({ color: "#68b36b" }, true);
+      [-1.18, 1.18].forEach((sx) => {
+        const bush = new THREE.Mesh(new THREE.DodecahedronGeometry(0.28, 0), shrubMat);
+        bush.scale.set(1.15, 0.78, 1.0);
+        bush.position.set(sx, 0.22, -0.32);
+        nodeGroup.add(bush);
+      });
+
+      const lanternGlowMat = this._disableOutline(new THREE.MeshBasicMaterial({ color: "#fef08a" }));
+      this.nightGlowMaterials.push(lanternGlowMat);
+      const lPillar = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.08, 0.56, 8), wallStoneMat);
+      lPillar.position.set(-0.92, 0.4, -0.58);
+      const lOrb = new THREE.Mesh(new THREE.SphereGeometry(0.14, 10, 10), lanternGlowMat);
+      lOrb.position.set(-0.92, 0.76, -0.58);
+      const lCap = new THREE.Mesh(new THREE.ConeGeometry(0.2, 0.14, 4), trimMat);
+      lCap.rotation.y = Math.PI / 4;
+      lCap.position.set(-0.92, 0.92, -0.58);
+      nodeGroup.add(lPillar, lOrb, lCap);
+
+      // 書案視覺插槽（無縫載入 prop_node_desk.glb）
       const deskSlot = new THREE.Group();
+      deskSlot.position.set(-0.12, 0, 0.16);
       const deskWood = this._makeToonMat({ color: "#c98548" });
       const legMat = this._makeToonMat({ color: "#5c6b7e" });
       const deskTop = new THREE.Mesh(new THREE.BoxGeometry(0.88, 0.08, 0.56), deskWood);
@@ -5275,44 +6037,60 @@
       nodeGroup.add(deskSlot);
       this.nodeDeskSlots.push({ slot: deskSlot, islandId, nodeId: node.id });
 
-      // Glowing Study Lamp / Achievement Gem above Desk (keeps .crystal ref for progress updates!)
+      // 右後方：星鐵／原神「界域傳送錨點方尖碑」＋ 懸浮發光旋轉菱晶 (.crystal) ＋ 環形星軌
+      const obeliskX = 0.78;
+      const obeliskZ = -0.52;
+      const obeliskBase = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.28, 0.24, 6), wallStoneMat);
+      obeliskBase.position.set(obeliskX, 0.24, obeliskZ);
+      const obeliskShaft = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.18, 1.12, 6), stoneMat);
+      obeliskShaft.position.set(obeliskX, 0.9, obeliskZ);
+      obeliskShaft.castShadow = true;
+      obeliskShaft.userData = { islandId, nodeId: node.id };
+      this.clickTargets.push(obeliskShaft);
+
       const crystalMat = this._makeToonMat({
         color: "#7f8fa6",
         emissive: "#000000"
       });
-      const lampNeck = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.04, 0.35, 6), legMat);
-      lampNeck.position.set(0.18, 0.78, -0.1);
-      const crystal = new THREE.Mesh(new THREE.OctahedronGeometry(0.24, 1), crystalMat);
-      crystal.position.set(0.18, 1.05, -0.1);
+      const crystal = new THREE.Mesh(new THREE.OctahedronGeometry(0.26, 0), crystalMat);
+      crystal.scale.set(0.86, 1.42, 0.86);
+      crystal.position.set(obeliskX, 1.85, obeliskZ);
       crystal.castShadow = true;
       crystal.userData = { islandId, nodeId: node.id };
-      nodeGroup.add(lampNeck, crystal);
       this.clickTargets.push(crystal);
 
-      // Campus Flagpole + Nanshan Panther Crest Topper + School Pennant Flag
+      const orbitRing = new THREE.Mesh(
+        new THREE.TorusGeometry(0.42, 0.03, 8, 22),
+        this._disableOutline(new THREE.MeshBasicMaterial({ color: "#fde047", transparent: true, opacity: 0.75 }))
+      );
+      orbitRing.position.set(obeliskX, 1.85, obeliskZ);
+      orbitRing.rotation.x = Math.PI * 0.34;
+      nodeGroup.add(obeliskBase, obeliskShaft, crystal, orbitRing);
+
+      const phase = Math.random() * Math.PI * 2;
+      this.ambientUpdaters.push((t) => {
+        orbitRing.rotation.z = t * 1.4 + phase;
+        orbitRing.position.y = 1.85 + Math.sin(t * 2.4 + phase) * 0.13;
+      });
+
+      // 錨點側翼精巧學院錦旗（保留 .flag / .topperMat 進度升級聯動）
       const pole = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.045, 0.05, 1.85, 8),
+        new THREE.CylinderGeometry(0.036, 0.045, 1.75, 8),
         this._makeToonMat({ color: "#f8fafc" })
       );
-      pole.position.set(0.55, 1.02, 0.08);
+      pole.position.set(1.06, 0.96, -0.32);
       nodeGroup.add(pole);
 
       const topperMat = this._makeToonMat({ color: "#95a5a6" });
       const topperGroup = new THREE.Group();
-      topperGroup.position.set(0.55, 2.0, 0.08);
-      const tHead = new THREE.Mesh(new THREE.SphereGeometry(0.14, 10, 10), topperMat);
-      const tEarL = new THREE.Mesh(new THREE.ConeGeometry(0.06, 0.13, 6), topperMat);
-      tEarL.position.set(-0.08, 0.13, 0);
-      tEarL.rotation.z = 0.25;
-      const tEarR = tEarL.clone();
-      tEarR.position.set(0.08, 0.13, 0);
-      tEarR.rotation.z = -0.25;
-      topperGroup.add(tHead, tEarL, tEarR);
+      topperGroup.position.set(1.06, 1.9, -0.32);
+      const tHead = new THREE.Mesh(new THREE.OctahedronGeometry(0.14, 0), topperMat);
+      topperGroup.add(tHead);
       nodeGroup.add(topperGroup);
 
       const flagMat = this._makeToonMat({ color: "#7f8fa6", side: THREE.DoubleSide });
-      const flag = new THREE.Mesh(new THREE.BoxGeometry(0.68, 0.4, 0.05), flagMat);
-      flag.position.set(0.88, 0.72, 0.08);
+      const flag = new THREE.Mesh(new THREE.BoxGeometry(0.56, 0.34, 0.04), flagMat);
+      flag.position.set(1.36, 0.72, -0.32);
       flag.userData = { islandId, nodeId: node.id };
       nodeGroup.add(flag);
       this.clickTargets.push(flag);
@@ -5322,9 +6100,9 @@
         crystal,
         flag,
         topperMat,
-        baseY: 1.05,
-        phase: Math.random() * Math.PI * 2,
-        angle
+        baseY: 1.85,
+        phase,
+        angle: Math.atan2(z, x)
       });
     }
 
@@ -6100,29 +6878,17 @@
       let surfaceType = "water";
       let bridgeId = null;
 
-      // 1. Central Nanshan Hub Island (with smooth sand-to-grass ramp)
-      const hubDist = Math.hypot(x, z);
-      if (hubDist <= 8.2) {
-        maxGround = 1.76;
-        onLand = true;
-        surfaceType = "hub";
-      } else if (hubDist <= 10.9) {
-        maxGround = 1.56;
-        onLand = true;
-        surfaceType = "hub";
-      } else if (hubDist <= 12.3) {
-        const s = (12.3 - hubDist) / 1.4;
-        maxGround = 0.86 + s * (1.56 - 0.86);
-        onLand = true;
-        surfaceType = "hub";
-      } else if (hubDist <= 13.4) {
-        maxGround = 0.86;
+      // 1. 中央自強廣場（與地形雕塑完全同一組數學公式）
+      const hubH = this._evalHubHeight(x, z);
+      if (hubH >= 0.28) {
+        maxGround = hubH;
         onLand = true;
         surfaceType = "hub";
       }
 
-      // 2. Radiating Bridges & 6 Subject Islands
-      for (const island of this.islandsData) {
+      // 2. 跨海木橋 ＆ 六大學科島（與 _buildIsland 同 seed）
+      for (let idx = 0; idx < this.islandsData.length; idx++) {
+        const island = this.islandsData[idx];
         if (allowBridge) {
           const bc = this._getBridgeCoord(x, z, island);
           if (bc.proj >= bc.startDist && bc.proj <= bc.endDist && Math.abs(bc.signedPerp) <= 1.28) {
@@ -6137,33 +6903,18 @@
 
         const dx = x - island.position.x;
         const dz = z - island.position.z;
-        const dist = Math.hypot(dx, dz);
         const r = island.radius;
+        const seed = idx * 1.7 + 0.4;
         let islH = -Infinity;
 
-        // Wooden dock
-        if (Math.abs(dx) <= 1.15 && dz >= r * 0.65 && dz <= r * 1.18) {
-          islH = Math.max(islH, 0.66);
+        // 南側木造碼頭
+        if (Math.abs(dx) <= 1.35 && dz >= r * 0.72 && dz <= r * 1.2) {
+          islH = Math.max(islH, 0.56);
         }
-        // Walkable 2F -> 3F stone stairs on south flank of hill terrace
-        if (Math.abs(dx + 2.2) <= 1.18 && dz >= 3.6 && dz <= 6.45) {
-          const st = Math.max(0, Math.min(1, (6.45 - dz) / 2.85));
-          islH = Math.max(islH, 1.84 + st * (3.25 - 1.84));
-        }
-        // 3F Hill terrace
-        const hillDist = Math.hypot(dx + 2.6, dz + 2.8);
-        if (hillDist <= r * 0.37) {
-          islH = Math.max(islH, 3.25);
-        } else if (dist <= r * 0.76) {
-          // 2F Grass plateau
-          islH = Math.max(islH, 1.84);
-        } else if (dist <= r * 0.87) {
-          // Smooth 1F -> 2F ramp meeting bridge head seamlessly
-          const st = (r * 0.87 - dist) / (r * 0.11);
-          islH = Math.max(islH, 0.98 + st * (1.84 - 0.98));
-        } else if (dist <= r * 0.98) {
-          // 1F Sand shoreline
-          islH = Math.max(islH, 0.98);
+
+        const evalH = this._evalIslandHeight(island, dx, dz, seed);
+        if (evalH >= 0.28) {
+          islH = Math.max(islH, evalH);
         }
 
         if (islH > maxGround) {
@@ -6209,8 +6960,8 @@
     }
 
     walkPantherTo(wx, wz, onArrive = null) {
-      const tx = Math.max(-62, Math.min(62, wx));
-      const tz = Math.max(-62, Math.min(62, wz));
+      const tx = Math.max(-82, Math.min(82, wx));
+      const tz = Math.max(-82, Math.min(82, wz));
       this.pantherState.autoTarget = { x: tx, z: tz, onArrive };
       this.pantherState.boostTimer = 0;
       this.isTweening = false;
@@ -6349,7 +7100,7 @@
       }
       const ps = this.pantherState;
       ps.x = 0;
-      ps.z = 3.35;
+      ps.z = 5.8;
       ps.groundY = 1.76;
       ps.y = 1.76;
       ps.vy = 0;
@@ -6360,6 +7111,10 @@
       ps.doubleJumped = false;
       ps.autoTarget = null;
       ps.boostTimer = 0;
+      ps.faceX = 0;
+      ps.faceZ = -1;
+      ps.faceAngle = Math.PI;
+      ps.dir = "back";
       this.cameraMode = "follow";
       this.isTweening = false;
       if (this.panther) {
@@ -6962,20 +7717,24 @@
       const pathInfo = this.islandPaths.get(islandId);
       if (!island || !pathInfo || pathInfo.waypoints.length === 0) return;
 
-      const startAngle = pathInfo.waypoints[0].angle;
+      const wp0 = pathInfo.waypoints[0];
+      const wx = island.position.x + (typeof wp0.x === "number" ? wp0.x : Math.cos(wp0.angle) * pathInfo.radius);
+      const wz = island.position.z + (typeof wp0.z === "number" ? wp0.z : Math.sin(wp0.angle) * pathInfo.radius);
+      const surf = this._getSurfaceInfoAt(wx, wz, false);
+      const wy = (surf.onWater ? 1.84 : surf.groundY) + 0.04;
       this.walkerState = {
         islandId,
         waypointIdx: 0,
-        currentAngle: startAngle,
-        targetAngle: startAngle,
+        curX: wx,
+        curZ: wz,
+        targetX: wx,
+        targetZ: wz,
+        currentAngle: wp0.angle,
+        targetAngle: wp0.angle,
         isMoving: false,
         pendingCallback: null
       };
-      this.walkerCat.group.position.set(
-        island.position.x + Math.cos(startAngle) * pathInfo.radius,
-        1.92,
-        island.position.z + Math.sin(startAngle) * pathInfo.radius
-      );
+      this.walkerCat.group.position.set(wx, wy, wz);
       this.walkerCat.group.visible = true;
     }
 
@@ -6996,17 +7755,14 @@
 
       const nextIdx = (this.walkerState.waypointIdx + 1) % pathInfo.waypoints.length;
       const wp = pathInfo.waypoints[nextIdx];
-      let targetAng = wp.angle;
-      while (targetAng <= this.walkerState.currentAngle) {
-        targetAng += Math.PI * 2;
-      }
+      const wx = island.position.x + (typeof wp.x === "number" ? wp.x : Math.cos(wp.angle) * pathInfo.radius);
+      const wz = island.position.z + (typeof wp.z === "number" ? wp.z : Math.sin(wp.angle) * pathInfo.radius);
       this.walkerState.waypointIdx = nextIdx;
-      this.walkerState.targetAngle = targetAng;
+      this.walkerState.targetX = wx;
+      this.walkerState.targetZ = wz;
       this.walkerState.isMoving = true;
       this.walkerState.pendingCallback = null;
 
-      const wx = island.position.x + Math.cos(wp.angle) * pathInfo.radius;
-      const wz = island.position.z + Math.sin(wp.angle) * pathInfo.radius;
       this.walkPantherTo(wx, wz, () => {
         this.doPantherAction("cheer");
         if (this.callbacks.onWalkEncounter) {
@@ -7084,51 +7840,84 @@
       const presets = {
         day: {
           bg: "#7ec9f5",
-          fog: "#adddf7",
-          hemiSky: "#e4f4ff",
-          hemiGround: "#4f86b0",
-          hemiInt: 0.42,
+          fog: "#b8e2f8",
+          hemiSky: "#e8f5ff",
+          hemiGround: "#5c8ca8",
+          hemiInt: 0.5,
           sunColor: "#fff4d9",
-          sunInt: 0.44,
-          rimInt: 0.08,
+          sunInt: 0.48,
+          rimInt: 0.16,
           shallow: "#5fd0e8",
           deep: "#2d8fca",
           foam: "#ffffff",
-          starOpacity: 0.1,
+          starOpacity: 0.08,
           rainbow: true,
-          winColor: "#bae6fd"
+          winColor: "#bae6fd",
+          skyTop: "#2374e0",
+          skyMid: "#6fc2f7",
+          skyHorizon: "#dcf2ff",
+          skySun: "#fff7da",
+          skySunDir: [0.32, 0.34, -0.88],
+          cloudCol: "#ffffff",
+          cloudShade: "#cfe7fc",
+          mNear: "#7cb5df",
+          mFar: "#9ec9ec",
+          sunTint: "#ffffff",
+          nightMix: 0.0
         },
         sunset: {
           bg: "#4a2759",
-          fog: "#7a3b5e",
+          fog: "#9e526b",
           hemiSky: "#ffaf87",
           hemiGround: "#3b234d",
-          hemiInt: 0.36,
+          hemiInt: 0.42,
           sunColor: "#ff9e64",
-          sunInt: 0.48,
-          rimInt: 0.10,
+          sunInt: 0.52,
+          rimInt: 0.16,
           shallow: "#e59682",
           deep: "#4d568a",
           foam: "#ffe8d2",
           starOpacity: 0.45,
           rainbow: false,
-          winColor: "#fde047"
+          winColor: "#fde047",
+          skyTop: "#2d255b",
+          skyMid: "#8e4571",
+          skyHorizon: "#ff9d76",
+          skySun: "#ffc285",
+          skySunDir: [0.42, 0.14, -0.89],
+          cloudCol: "#ffd4b8",
+          cloudShade: "#7c4c72",
+          mNear: "#683b68",
+          mFar: "#8d4e6f",
+          sunTint: "#ffd2b4",
+          nightMix: 0.25
         },
         night: {
           bg: "#050d1e",
-          fog: "#081730",
+          fog: "#0b1e3d",
           hemiSky: "#335c8a",
           hemiGround: "#081326",
-          hemiInt: 0.22,
+          hemiInt: 0.26,
           sunColor: "#8fa8ff",
-          sunInt: 0.24,
-          rimInt: 0.06,
+          sunInt: 0.26,
+          rimInt: 0.1,
           shallow: "#1d4b75",
           deep: "#091c38",
           foam: "#7ecbff",
           starOpacity: 0.96,
           rainbow: false,
-          winColor: "#fef08a"
+          winColor: "#fef08a",
+          skyTop: "#040a1a",
+          skyMid: "#0b1f42",
+          skyHorizon: "#163661",
+          skySun: "#cfe4ff",
+          skySunDir: [0.32, 0.42, -0.85],
+          cloudCol: "#2c4c7a",
+          cloudShade: "#122442",
+          mNear: "#0e2545",
+          mFar: "#163158",
+          sunTint: "#a8c7ff",
+          nightMix: 0.85
         }
       };
 
@@ -7147,6 +7936,28 @@
       if (this.rimLight) {
         this.rimLight.intensity = p.rimInt;
       }
+      if (this.skyUniforms) {
+        this.skyUniforms.uTopColor.value.set(p.skyTop);
+        this.skyUniforms.uMidColor.value.set(p.skyMid);
+        this.skyUniforms.uHorizonColor.value.set(p.skyHorizon);
+        this.skyUniforms.uFogColor.value.set(p.fog);
+        this.skyUniforms.uSunColor.value.set(p.skySun);
+        this.skyUniforms.uSunDir.value.set(p.skySunDir[0], p.skySunDir[1], p.skySunDir[2]).normalize();
+        this.skyUniforms.uCloudColor.value.set(p.cloudCol);
+        this.skyUniforms.uCloudShade.value.set(p.cloudShade);
+        this.skyUniforms.uMountainNear.value.set(p.mNear);
+        this.skyUniforms.uMountainFar.value.set(p.mFar);
+        this.skyUniforms.uNightMix.value = mode === "night" ? 1.0 : mode === "sunset" ? 0.35 : 0.0;
+      }
+      this.terrainUniformList.forEach((u) => {
+        u.uFogColor.value.set(p.fog);
+        u.uSunTint.value.set(p.sunTint);
+        u.uNightMix.value = p.nightMix;
+      });
+      this.grassUniformList.forEach((u) => {
+        u.uFogColor.value.set(p.fog);
+        u.uNightMix.value = p.nightMix;
+      });
       if (this.oceanUniforms) {
         this.oceanUniforms.uShallowColor.value.set(p.shallow);
         this.oceanUniforms.uDeepColor.value.set(p.deep);
@@ -7154,8 +7965,11 @@
         this.oceanUniforms.uFogColor.value.set(p.fog);
       }
       const glbEmissive = this._getAtmoEmissiveIntensity(mode);
+      const archEmissive = this._getArchEmissiveIntensity(mode);
       this.stylizedMaterials.forEach((m) => {
-        if (m && m.emissiveMap) m.emissiveIntensity = glbEmissive;
+        if (m && m.emissiveMap) {
+          m.emissiveIntensity = m.userData && m.userData.isArchMat ? archEmissive : glbEmissive;
+        }
       });
       if (this.starField) {
         this.starField.material.opacity = p.starOpacity;
@@ -7324,11 +8138,11 @@
     _getFollowPose(x, y, z, width, height) {
       const THREE = window.THREE;
       const aspect = (width || 1200) / Math.max(height || 800, 1);
-      const camHeight = aspect < 0.85 ? 8.2 : 6.8;
-      const camBack = aspect < 0.85 ? 12.2 : 10.2;
+      const camLift = aspect < 0.85 ? 2.52 : 2.38;
+      const camBack = aspect < 0.85 ? 7.2 : 6.2;
       return {
-        camPos: new THREE.Vector3(x, y + camHeight, z + camBack),
-        targetPos: new THREE.Vector3(x, y + 0.95, z)
+        camPos: new THREE.Vector3(x, y + camLift, z + camBack),
+        targetPos: new THREE.Vector3(x, y + 2.02, z)
       };
     }
 
@@ -7367,10 +8181,10 @@
       };
       this.placeWalkerOnIsland(islandId);
 
-      // Teleport Nanshan Panther onto the island's grassy welcome plaza so student can walk right away
+      // 降落南側迎賓大道起點，正面透過主題牌坊與大道仰望主聖殿
       const ps = this.pantherState;
-      ps.x = island.position.x + 0.35;
-      ps.z = island.position.z + island.radius * 0.62;
+      ps.x = island.position.x;
+      ps.z = island.position.z + 11.8;
       const surf = this._getSurfaceInfoAt(ps.x, ps.z, false);
       ps.groundY = surf.groundY;
       ps.y = surf.groundY;
@@ -7383,8 +8197,9 @@
       ps.autoTarget = null;
       ps.boostTimer = 0;
       ps.faceX = 0;
-      ps.faceZ = 1;
-      ps.dir = "front";
+      ps.faceZ = -1;
+      ps.faceAngle = Math.PI;
+      ps.dir = "back";
       if (this.panther) {
         this.panther.group.position.set(ps.x, ps.y, ps.z);
         this.panther.surfboard.visible = surf.onWater;
@@ -7399,12 +8214,11 @@
       if (!this.isWebGL) return;
 
       const THREE = window.THREE;
-      this.cameraTargetPos = new THREE.Vector3(
-        island.position.x + 2.5,
-        18.2,
-        island.position.z + 23.5
-      );
-      this.controlsTargetPos = new THREE.Vector3(island.position.x, 1.8, island.position.z);
+      const { width, height } = this._getViewportSize();
+      const aspect = width / Math.max(height, 1);
+      const backDist = aspect < 0.85 ? 7.4 : 6.2;
+      this.cameraTargetPos = new THREE.Vector3(ps.x + 0.55, ps.y + 2.42, ps.z + backDist);
+      this.controlsTargetPos = new THREE.Vector3(ps.x, ps.y + 2.08, ps.z - 1.8);
       this.isTweening = true;
     }
 
@@ -7531,7 +8345,12 @@
       this.islandsData.forEach((island) => {
         const el = this.labelEls.get(island.id);
         if (!el) return;
-        tempVec.set(island.position.x, 6.8, island.position.z);
+        if (this.cameraMode === "follow" && (this.selectedIslandId === island.id || this.nearIslandId === island.id)) {
+          el.style.opacity = "0";
+          el.style.pointerEvents = "none";
+          return;
+        }
+        tempVec.set(island.position.x, 13.8, island.position.z);
         tempVec.project(this.camera);
 
         if (
@@ -7616,6 +8435,15 @@
         }
         if (this.oceanUniforms) {
           this.oceanUniforms.uTime.value = this.clockTime;
+        }
+        if (this.skyUniforms) {
+          this.skyUniforms.uTime.value = this.clockTime;
+        }
+        for (let ti = 0; ti < this.terrainUniformList.length; ti++) {
+          this.terrainUniformList[ti].uTime.value = this.clockTime;
+        }
+        for (let gi = 0; gi < this.grassUniformList.length; gi++) {
+          this.grassUniformList[gi].uTime.value = this.clockTime;
         }
         this._oceanFrame = (this._oceanFrame || 0) + 1;
         if (this.oceanGeo && this._oceanFrame % 3 === 0) {
@@ -7726,21 +8554,32 @@
           }
         });
 
-        // Walker Cat roaming
+        // Walker Cat roaming (依真實庭院座標平滑漫步並貼地)
         if (this.walkerCat && this.walkerCat.group.visible && this.walkerState.islandId) {
           const isl = this.islandsData.find((i) => i.id === this.walkerState.islandId);
           const pInfo = this.islandPaths.get(this.walkerState.islandId);
           if (isl && pInfo) {
+            if (typeof this.walkerState.curX !== "number") {
+              this.walkerState.curX = this.walkerCat.group.position.x;
+              this.walkerState.curZ = this.walkerCat.group.position.z;
+              this.walkerState.targetX = this.walkerState.curX;
+              this.walkerState.targetZ = this.walkerState.curZ;
+            }
             if (this.walkerState.isMoving) {
-              const diff = this.walkerState.targetAngle - this.walkerState.currentAngle;
-              if (diff <= 0.04) {
-                this.walkerState.currentAngle = this.walkerState.targetAngle % (Math.PI * 2);
+              const dxW = this.walkerState.targetX - this.walkerState.curX;
+              const dzW = this.walkerState.targetZ - this.walkerState.curZ;
+              const distW = Math.hypot(dxW, dzW);
+              const stepMax = dt * 6.5;
+              if (distW <= stepMax + 0.08) {
+                this.walkerState.curX = this.walkerState.targetX;
+                this.walkerState.curZ = this.walkerState.targetZ;
                 this.walkerState.isMoving = false;
                 const cb = this.walkerState.pendingCallback;
                 this.walkerState.pendingCallback = null;
                 if (cb) cb();
               } else {
-                this.walkerState.currentAngle += Math.min(diff, dt * 2.4);
+                this.walkerState.curX += (dxW / distW) * stepMax;
+                this.walkerState.curZ += (dzW / distW) * stepMax;
                 this.pawSpawnAccum += dt;
                 if (this.pawSpawnAccum > 0.16) {
                   this.pawSpawnAccum = 0;
@@ -7752,18 +8591,19 @@
                   });
                   const pawMark = new THREE.Mesh(new THREE.CircleGeometry(0.16, 10), pMat);
                   pawMark.rotation.x = -Math.PI / 2;
-                  pawMark.position.set(this.walkerCat.group.position.x, 1.9, this.walkerCat.group.position.z);
+                  const pSurf = this._getSurfaceInfoAt(this.walkerState.curX, this.walkerState.curZ, false);
+                  pawMark.position.set(this.walkerState.curX, (pSurf.onWater ? 1.84 : pSurf.groundY) + 0.06, this.walkerState.curZ);
                   this.scene.add(pawMark);
                   this.pawPrints.push({ mesh: pawMark, mat: pMat, life: 1.3 });
                 }
               }
             }
-            const ang = this.walkerState.currentAngle;
-            const hopOffset = this.walkerState.isMoving ? Math.abs(Math.sin(this.clockTime * 14)) * 0.28 : 0;
+            const wSurf = this._getSurfaceInfoAt(this.walkerState.curX, this.walkerState.curZ, false);
+            const hopOffset = this.walkerState.isMoving ? Math.abs(Math.sin(this.clockTime * 14)) * 0.26 : 0;
             this.walkerCat.group.position.set(
-              isl.position.x + Math.cos(ang) * pInfo.radius,
-              1.92 + hopOffset,
-              isl.position.z + Math.sin(ang) * pInfo.radius
+              this.walkerState.curX,
+              (wSurf.onWater ? 1.84 : wSurf.groundY) + 0.04 + hopOffset,
+              this.walkerState.curZ
             );
             this.walkerCat.group.lookAt(
               this.camera.position.x,
@@ -7940,6 +8780,13 @@
 
         if (this.controls) {
           this.controls.update();
+          if (this.cameraMode === "follow") {
+            const camSurf = this._getSurfaceInfoAt(this.camera.position.x, this.camera.position.z, false);
+            const minCamY = camSurf.onWater ? 0.9 : camSurf.groundY + 0.68;
+            if (this.camera.position.y < minCamY) {
+              this.camera.position.y = minCamY;
+            }
+          }
         }
         this._renderScene();
       } else if (this.fallbackCtx) {
@@ -8414,7 +9261,7 @@
 
       if ((moved || this.cameraMode === "follow") && this.controls && !this.isTweening) {
         const oldT = this.controls.target.clone();
-        const desiredT = new THREE.Vector3(ps.x, ps.y + 0.95, ps.z);
+        const desiredT = new THREE.Vector3(ps.x, ps.y + 2.02, ps.z);
         this.controls.target.lerp(desiredT, moved ? 0.22 : 0.12);
         const deltaT = this.controls.target.clone().sub(oldT);
         this.camera.position.add(deltaT);
@@ -8431,6 +9278,8 @@
           // 跑酷追逐視角：往前／斜向跑動時鏡頭繞到背後；按住 S 往鏡頭反方向倒退時鎖定鏡頭方位避免原地繞圈
           const tgt = this.controls.target;
           const cam = this.camera.position;
+          const vp = this._getViewportSize();
+          const targetDist = vp.width < vp.height * 0.85 ? this.chaseDist * 1.15 : this.chaseDist;
           const dx = cam.x - tgt.x;
           const dz = cam.z - tgt.z;
           let r = Math.hypot(dx, dz) || 1;
@@ -8441,7 +9290,7 @@
           if (!movingTowardCam) {
             ang += diff * Math.min(1, dt * 2.6);
           }
-          r += (this.chaseDist - r) * Math.min(1, dt * 2.2);
+          r += (targetDist - r) * Math.min(1, dt * 2.2);
           const h = cam.y - tgt.y;
           const hNew = h + (this.chaseHeight - h) * Math.min(1, dt * 2.2);
           cam.set(tgt.x + Math.sin(ang) * r, tgt.y + hNew, tgt.z + Math.cos(ang) * r);
@@ -8452,12 +9301,18 @@
             const horizDirZ = this.camera.position.z - desiredT.z;
             const hLen = Math.hypot(horizDirX, horizDirZ) || 1;
             const goalPos = new THREE.Vector3(
-              desiredT.x + (horizDirX / hLen) * 15.5,
-              ps.y + 10.5,
-              desiredT.z + (horizDirZ / hLen) * 15.5
+              desiredT.x + (horizDirX / hLen) * 14.5,
+              ps.y + 8.5,
+              desiredT.z + (horizDirZ / hLen) * 14.5
             );
             this.camera.position.lerp(goalPos, 0.09);
           }
+        }
+
+        const camSurf = this._getSurfaceInfoAt(this.camera.position.x, this.camera.position.z, false);
+        const minCamY = camSurf.onWater ? 0.9 : camSurf.groundY + 0.68;
+        if (this.camera.position.y < minCamY) {
+          this.camera.position.y = minCamY;
         }
       }
     }
@@ -8688,6 +9543,9 @@
         this.hubLampGroups = [];
         this.encounterMailboxes = [];
         this.seaBuoyGroups = [];
+        this.terrainUniformList = [];
+        this.grassUniformList = [];
+        this.sanctuaryLights = [];
         if (this.intelMeshes) this.intelMeshes.clear();
         this._initThree();
         this.isWebGL = true;

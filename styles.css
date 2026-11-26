@@ -128,21 +128,23 @@ textarea {
 /* ==================== 頂部精簡狀態列與「功能選單」摺疊資料夾 ==================== */
 .top-header {
   position: fixed;
-  top: 10px;
-  left: 14px;
-  right: 14px;
+  top: 8px;
+  left: 12px;
+  right: 12px;
   z-index: 25;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 8px 12px;
-  padding: 8px 16px;
-  background: rgba(255, 252, 245, 0.96);
-  border: 2.5px solid #ffffff;
-  border-bottom: 4px solid #cbe6ff;
+  gap: 5px 8px;
+  padding: 5px 12px;
+  background: rgba(255, 252, 248, 0.74);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1.5px solid rgba(255, 255, 255, 0.82);
+  border-bottom: 2.5px solid rgba(186, 224, 255, 0.72);
   border-radius: 999px;
-  box-shadow: var(--shadow-lg);
+  box-shadow: 0 8px 24px rgba(32, 82, 132, 0.14);
 }
 
 .is-hidden-compact {
@@ -236,30 +238,31 @@ textarea {
 .brand-area {
   display: flex;
   align-items: center;
-  gap: 11px;
+  gap: 8px;
 }
 
 .brand-icon {
-  width: 42px;
-  height: 42px;
-  border-radius: 15px;
+  width: 34px;
+  height: 34px;
+  border-radius: 12px;
   background: linear-gradient(145deg, #5ed1ff, #34d399);
-  border: 2px solid #ffffff;
+  border: 1.5px solid #ffffff;
   display: grid;
   place-items: center;
-  font-size: 21px;
-  box-shadow: 0 4px 0 #1ea382, 0 6px 14px rgba(56, 189, 248, 0.35);
+  font-size: 17px;
+  box-shadow: 0 3px 0 #1ea382, 0 5px 10px rgba(56, 189, 248, 0.28);
 }
 
 .brand-title {
-  font-size: 16.5px;
+  font-size: 14px;
   font-weight: 900;
-  letter-spacing: 0.02em;
+  letter-spacing: 0.01em;
   color: #26384d;
+  white-space: nowrap;
 }
 
 .brand-sub {
-  font-size: 11.5px;
+  font-size: 11px;
   font-weight: 700;
   color: #657c96;
 }
@@ -267,23 +270,23 @@ textarea {
 .status-pills {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 5px;
   flex-wrap: wrap;
 }
 
 .stat-pill {
   display: flex;
   align-items: center;
-  gap: 7px;
-  padding: 6px 13px;
-  background: #ffffff;
-  border: 2px solid #d9edff;
-  border-bottom-width: 3px;
+  gap: 5px;
+  padding: 4px 9px;
+  background: rgba(255, 255, 255, 0.78);
+  border: 1.5px solid rgba(208, 232, 255, 0.85);
+  border-bottom-width: 2px;
   border-radius: 999px;
-  font-size: 12.5px;
+  font-size: 11.5px;
   font-weight: 700;
   color: #364a63;
-  box-shadow: 0 3px 8px rgba(80, 140, 200, 0.1);
+  box-shadow: 0 2px 6px rgba(80, 140, 200, 0.08);
 }
 
 .stat-pill strong {
@@ -292,8 +295,8 @@ textarea {
 }
 
 .mini-progress-track {
-  width: 72px;
-  height: 9px;
+  width: 52px;
+  height: 8px;
   border-radius: 999px;
   background: #e2effa;
   border: 1px solid #cce3f8;
@@ -1614,19 +1617,21 @@ textarea {
 
 .island-float-pill {
   position: fixed;
-  top: 132px;
+  top: 62px;
   left: 50%;
   transform: translateX(-50%);
   z-index: 21;
   display: none;
   align-items: center;
   gap: 8px;
-  padding: 6px 14px;
+  padding: 5px 12px;
   border-radius: 999px;
-  background: rgba(255, 252, 245, 0.96);
-  border: 2.5px solid #ffffff;
-  box-shadow: 0 8px 22px rgba(48, 108, 168, 0.25), 0 0 0 2px #7dd3fc;
-  font-size: 13.5px;
+  background: rgba(255, 252, 248, 0.78);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1.5px solid rgba(255, 255, 255, 0.85);
+  box-shadow: 0 6px 18px rgba(48, 108, 168, 0.18), 0 0 0 1.5px rgba(125, 211, 252, 0.7);
+  font-size: 13px;
   font-weight: 900;
   color: #24374d;
   max-width: calc(100vw - 16px);
