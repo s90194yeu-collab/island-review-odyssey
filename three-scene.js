@@ -1257,9 +1257,58 @@
       return new THREE.Box3().setFromObject(model);
     }
 
+    _getGlbEnvMap() {
+      const THREE = window.THREE;
+      if (this._glbEnvMap !== undefined) return this._glbEnvMap;
+      if (!THREE || !THREE.PMREMGenerator || !this.renderer) {
+        this._glbEnvMap = null;
+        return null;
+      }
+      try {
+        const pmrem = new THREE.PMREMGenerator(this.renderer);
+        if (typeof pmrem.compileEquirectangularShader === "function") {
+          pmrem.compileEquirectangularShader();
+        }
+        const envScene = new THREE.Scene();
+        envScene.background = new THREE.Color("#2b3e58");
+        const dome = new THREE.Mesh(
+          new THREE.SphereGeometry(20, 24, 16),
+          new THREE.MeshBasicMaterial({ color: "#4d78a8", side: THREE.BackSide })
+        );
+        envScene.add(dome);
+        const sunCard = new THREE.Mesh(
+          new THREE.PlaneGeometry(5, 5),
+          new THREE.MeshBasicMaterial({ color: "#ffffff", side: THREE.DoubleSide })
+        );
+        sunCard.position.set(6, 8, 9);
+        sunCard.lookAt(0, 0, 0);
+        envScene.add(sunCard);
+        const fillCard = new THREE.Mesh(
+          new THREE.PlaneGeometry(4, 4),
+          new THREE.MeshBasicMaterial({ color: "#dbeafe", side: THREE.DoubleSide })
+        );
+        fillCard.position.set(-7, 5, 8);
+        fillCard.lookAt(0, 0, 0);
+        envScene.add(fillCard);
+        const rt = pmrem.fromScene(envScene, 0.04);
+        dome.geometry.dispose();
+        dome.material.dispose();
+        sunCard.geometry.dispose();
+        sunCard.material.dispose();
+        fillCard.geometry.dispose();
+        fillCard.material.dispose();
+        pmrem.dispose();
+        this._glbEnvMap = rt ? rt.texture : null;
+      } catch (_) {
+        this._glbEnvMap = null;
+      }
+      return this._glbEnvMap;
+    }
+
     _prepareGltfMeshes(model, isPantherSlot, clickData = null) {
       const THREE = window.THREE;
       const useShadows = Boolean(isPantherSlot || (clickData && clickData.isHub));
+      const envMap = this._getGlbEnvMap();
       model.traverse((n) => {
         if (n.isMesh) {
           n.castShadow = useShadows;
@@ -1271,6 +1320,10 @@
             mat.metalnessMap = null;
             mat.metalness = 0;
             mat.roughness = mat.roughnessMap ? 0.92 : 0.85;
+            if (envMap) {
+              mat.envMap = envMap;
+              mat.envMapIntensity = 0.35;
+            }
             const maxAniso =
               this.renderer && this.renderer.capabilities && typeof this.renderer.capabilities.getMaxAnisotropy === "function"
                 ? Math.min(8, this.renderer.capabilities.getMaxAnisotropy())
@@ -1873,14 +1926,14 @@
         // 5. 商店解鎖「自強不息黃金貓雕像」共用 cat_3d.glb 鍍金材質
         this._mountGoldStatue(base);
 
-        // 6. 載入 6 隻《答對率》貓福珊迪 Q 彈水彩風格 H3.1 + 1024 PBR 模型
+        // 6. 載入 6 隻《答對率》貓福珊迪 Q 彈水彩風格 H3.0 + 1024 PBR + 眼神光補亮模型
         const breedConfigs = [
-          { url: "assets/cat_ragdoll_3d.glb?v=13", height: 2.18, hub: true, islands: ["history"], scale: 0.86 },
-          { url: "assets/cat_white_3d.glb?v=13", height: 2.18, islands: ["chinese"], scale: 0.86 },
-          { url: "assets/cat_calico_3d.glb?v=13", height: 2.18, islands: ["civics"], scale: 0.86 },
-          { url: "assets/cat_tuxedo_3d.glb?v=13", height: 2.18, islands: ["english", "listening"], scale: 0.86 },
-          { url: "assets/cat_pirate_3d.glb?v=13", height: 2.0, captain: true },
-          { url: "assets/cat_salmon_3d.glb?v=13", height: 1.9, salmon: true }
+          { url: "assets/cat_ragdoll_3d.glb?v=14", height: 2.18, hub: true, islands: ["history"], scale: 0.86 },
+          { url: "assets/cat_white_3d.glb?v=14", height: 2.18, islands: ["chinese"], scale: 0.86 },
+          { url: "assets/cat_calico_3d.glb?v=14", height: 2.18, islands: ["civics"], scale: 0.86 },
+          { url: "assets/cat_tuxedo_3d.glb?v=14", height: 2.18, islands: ["english", "listening"], scale: 0.86 },
+          { url: "assets/cat_pirate_3d.glb?v=14", height: 2.0, captain: true },
+          { url: "assets/cat_salmon_3d.glb?v=14", height: 1.9, salmon: true }
         ];
         breedConfigs.forEach((cfg) => {
           this._loadCatVariant(loader, cfg.url, cfg.height, (variantBase, animations) => {
