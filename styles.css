@@ -2987,3 +2987,90 @@ body.is-focus-mode .focus-ring-fg {
   font-weight: 800;
   margin-bottom: 6px;
 }
+
+/* ==================== 拍照明信片模式 ==================== */
+body.is-photo-mode .top-header,
+body.is-photo-mode .panther-joy-wrap,
+body.is-photo-mode .panther-actions-hud,
+body.is-photo-mode .quick-dock,
+body.is-photo-mode .island-panel,
+body.is-photo-mode .island-float-pill,
+body.is-photo-mode .near-island-banner,
+body.is-photo-mode .life-action-bar,
+body.is-photo-mode #island-labels {
+  opacity: 0 !important;
+  pointer-events: none !important;
+  transition: opacity 0.25s ease;
+}
+
+.photo-mode-bar {
+  position: fixed;
+  left: 50%;
+  bottom: calc(20px + env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  z-index: 45;
+  display: none;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: rgba(255, 252, 245, 0.96);
+  border: 2.5px solid #ffffff;
+  border-bottom: 4px solid #cbd5e1;
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.28);
+  max-width: calc(100vw - 20px);
+}
+
+body.is-photo-mode .photo-mode-bar {
+  display: flex;
+}
+
+.photo-mode-btn {
+  padding: 8px 14px;
+  border-radius: 999px;
+  border: 2px solid #cbd5e1;
+  background: #ffffff;
+  color: #1e293b;
+  font-size: 13px;
+  font-weight: 900;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: transform 0.12s ease, background 0.12s ease;
+}
+
+.photo-mode-btn:hover {
+  transform: translateY(-1px);
+  background: #f8fafc;
+}
+
+.photo-mode-btn.is-snap {
+  background: linear-gradient(180deg, #ffe26a 0%, #ffb703 100%);
+  border-color: #d97706;
+  color: #451a03;
+}
+
+.photo-mode-btn.is-fx-on {
+  background: linear-gradient(180deg, #ffe4e6 0%, #fecdd3 100%);
+  border-color: #fb7185;
+  color: #881337;
+}
+
+.photo-mode-btn.is-exit {
+  background: #f1f5f9;
+  color: #475569;
+}
+
+.photo-flash-overlay {
+  position: fixed;
+  inset: 0;
+  background: #ffffff;
+  opacity: 0;
+  pointer-events: none;
+  z-index: 60;
+  transition: opacity 0.35s ease;
+}
+
+.photo-flash-overlay.is-flash {
+  opacity: 0.88;
+  transition: none;
+}

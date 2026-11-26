@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@700;800;900&family=Zen+Maru+Gothic:wght@500;700;900&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="styles.css?v=14" />
+  <link rel="stylesheet" href="styles.css?v=15" />
 </head>
 <body tabindex="-1">
   <!-- 3D 群島畫布與懸浮島嶼標籤 -->
@@ -65,6 +65,7 @@
         <button type="button" class="nav-btn" id="nav-life-btn" title="群島建設圖鑑、隨身行囊與跨島搜尋">🏕️ 造島＆行囊</button>
         <button type="button" class="nav-btn" id="nav-wrong-btn" title="集中特訓曾經答錯的考題">📕 錯題特訓 (0)</button>
         <button type="button" class="nav-btn" id="atmosphere-toggle-btn" title="切換 3D 海域天色">☀️ 晴空海域</button>
+        <button type="button" class="nav-btn" id="nav-photo-btn" title="隱藏介面並合成自強紀念明信片">📷 拍照明信片</button>
         <button type="button" class="nav-btn is-active" id="nav-explore-btn">🏝️ 探索</button>
         <button type="button" class="nav-btn" id="nav-schedule-btn">📅 彈性排程</button>
         <button type="button" class="nav-btn" id="nav-report-btn">📊 成果與 GAS 同步</button>
@@ -413,6 +414,14 @@
   <!-- 專屬列印根節點（平常隱藏，列印時顯示） -->
   <div id="print-report-root"></div>
 
+  <!-- 拍照明信片懸浮工具列與閃光層 -->
+  <div class="photo-mode-bar" id="photo-mode-bar" aria-label="拍照明信片工具列">
+    <button type="button" class="photo-mode-btn" id="photo-fx-toggle-btn">🌸 櫻花／流星預覽</button>
+    <button type="button" class="photo-mode-btn is-snap" id="photo-snap-btn">📷 拍下自強明信片</button>
+    <button type="button" class="photo-mode-btn is-exit" id="photo-exit-btn">✕ 退出拍照</button>
+  </div>
+  <div class="photo-flash-overlay" id="photo-flash-overlay" aria-hidden="true"></div>
+
   <!-- 提示氣泡 -->
   <div class="toast" id="toast"></div>
 
@@ -421,6 +430,7 @@
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js" async></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/SVGLoader.js" async></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/effects/OutlineEffect.js" async></script>
   <script>
     (function loadThreeFallback() {
       function injectScript(src, onload) {
@@ -448,9 +458,9 @@
     })();
   </script>
 
-  <script src="data.js?v=13"></script>
+  <script src="data.js?v=15"></script>
   <script src="panther-sprites.js?v=13"></script>
-  <script src="three-scene.js?v=19"></script>
-  <script src="app.js?v=14"></script>
+  <script src="three-scene.js?v=21"></script>
+  <script src="app.js?v=15"></script>
 </body>
 </html>

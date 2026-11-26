@@ -52,6 +52,10 @@
   let focusDistractions = 0;
   let focusOverlayOpen = false;
   let lastDanceRewardAt = 0;
+  const celebratedIslands = new Set();
+  let celebratedInitDone = false;
+  let photoCountdownPreview = false;
+  let autoCountdownFx = false;
 
   let activeLifeState = null;
   const activityCooldownAt = {};
@@ -546,10 +550,20 @@
     }
   }
 
+  function resolveEffectiveAtmosphere(mode) {
+    const raw = mode || (state.catStats && state.catStats.atmosphere) || "day";
+    if (raw !== "auto") return raw;
+    const hr = new Date().getHours();
+    if (hr >= 6 && hr <= 15) return "day";
+    if (hr >= 16 && hr <= 18) return "sunset";
+    return "night";
+  }
+
   function updateAtmosphereButton() {
     const btn = document.getElementById("atmosphere-toggle-btn");
     if (!btn) return;
     const labels = {
+      auto: "🕰️ 自動天色",
       day: "☀️ 晴空海域",
       sunset: "🌅 魔法夕陽",
       night: "🌌 星夜螢光海"
@@ -607,10 +621,18 @@
       } else {
         el.textContent = `${examName}已圓滿完成 (${rangeLabel})`;
       }
+      autoCountdownFx = now <= examEnd;
+      if (sceneManager && typeof sceneManager.setCountdownSpecialFX === "function") {
+        sceneManager.setCountdownSpecialFX(autoCountdownFx || photoCountdownPreview);
+      }
       return;
     }
     const days = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
     el.textContent = `倒數 ${days} 天 (${rangeLabel})`;
+    autoCountdownFx = days <= 3;
+    if (sceneManager && typeof sceneManager.setCountdownSpecialFX === "function") {
+      sceneManager.setCountdownSpecialFX(autoCountdownFx || photoCountdownPreview);
+    }
   }
 
   function getTodayDateStr() {
@@ -648,7 +670,7 @@
       if (t === "study") return "focus_lofi";
       if (t === "cafe" || t === "lounge" || t === "fishing") return "cafe_chill";
     }
-    const atmo = (state.catStats && state.catStats.atmosphere) || "day";
+    const atmo = resolveEffectiveAtmosphere((state.catStats && state.catStats.atmosphere) || "day");
     if (atmo === "sunset") return "cafe_chill";
     if (atmo === "night") return "night_study";
     return "island_day";
@@ -1231,6 +1253,27 @@
       sceneManager.refreshAllStates();
       sceneManager.syncDecorations(state.ownedBuildings || []);
       sceneManager.syncCollectedIntel(state.collectedIntel || []);
+
+      if (!celebratedInitDone) {
+        DATA.islands.forEach((isl) => {
+          if (getIslandStats(isl).allConquered) celebratedIslands.add(isl.id);
+        });
+        celebratedInitDone = true;
+      } else {
+        DATA.islands.forEach((isl) => {
+          const conqueredNow = getIslandStats(isl).allConquered;
+          if (conqueredNow && !celebratedIslands.has(isl.id)) {
+            celebratedIslands.add(isl.id);
+            if (typeof sceneManager.playIslandVictoryOrbit === "function") {
+              sceneManager.playIslandVictoryOrbit(isl.id);
+            }
+            playSfx("complete");
+            showToast(`🌟 制霸「${isl.name}」！全島燈塔點亮，守護貓慶祝熱舞中！`);
+          } else if (!conqueredNow && celebratedIslands.has(isl.id)) {
+            celebratedIslands.delete(isl.id);
+          }
+        });
+      }
     }
   }
 
@@ -4294,7 +4337,10 @@
     try {
       sceneManager.init(DATA.islands, getNodeStatus);
       sceneManager.setPantherSex(state.pantherSex || "m", true);
-      sceneManager.setAtmosphereMode((state.catStats && state.catStats.atmosphere) || "day");
+      sceneManager.setAtmosphereMode(resolveEffectiveAtmosphere((state.catStats && state.catStats.atmosphere) || "day"));
+      if (typeof sceneManager.setCountdownSpecialFX === "function") {
+        sceneManager.setCountdownSpecialFX(autoCountdownFx || photoCountdownPreview);
+      }
     } catch (sceneErr) {
       console.warn("場景初始化發生例外，維持基礎介面運作：", sceneErr);
     }
@@ -4642,20 +4688,182 @@
     });
     document.getElementById("life-stop-btn")?.addEventListener("click", () => stopLifeActivityUI(false));
 
-    // Atmosphere Cycle Button
+    // Postcard Photo Mode (D4)
+    const enterPhotoMode = () => {
+      closeScheduleModal();
+      closeReportModal();
+      closeCheckinModal();
+      closeLifeModal();
+      closeAdminModal();
+      closeQuizModal();
+      closeEncounterModal();
+      if (activeIslandId && document.body.classList.contains("has-open-panel")) {
+        collapseIslandPanelTo3D();
+      }
+      document.body.classList.add("is-photo-mode");
+      const fxBtn = document.getElementById("photo-fx-toggle-btn");
+      if (fxBtn) {
+        fxBtn.classList.toggle("is-fx-on", photoCountdownPreview || autoCountdownFx);
+      }
+      showToast("📷 已進入拍照明信片模式！自由旋轉好角度後點下方快門即可下載紀念圖");
+    };
+
+    const exitPhotoMode = () => {
+      document.body.classList.remove("is-photo-mode");
+    };
+
+    const capturePostcardPng = () => {
+      if (!sceneManager || typeof sceneManager.captureSnapshotDataUrl !== "function") return;
+      const flashEl = document.getElementById("photo-flash-overlay");
+      if (flashEl) {
+        flashEl.classList.add("is-flash");
+        requestAnimationFrame(() => setTimeout(() => flashEl.classList.remove("is-flash"), 45));
+      }
+      playSfx("catch");
+
+      const snapUrl = sceneManager.captureSnapshotDataUrl();
+      if (!snapUrl) {
+        showToast("⚠️ 無法擷取 3D 畫面，請稍後再試");
+        return;
+      }
+
+      const img = new Image();
+      img.onload = () => {
+        const W = 1280;
+        const H = 820;
+        const cv = document.createElement("canvas");
+        cv.width = W;
+        cv.height = H;
+        const ctx = cv.getContext("2d");
+
+        // Warm cream postcard frame
+        ctx.fillStyle = "#fffcf5";
+        ctx.fillRect(0, 0, W, H);
+        ctx.strokeStyle = "#e2d6c3";
+        ctx.lineWidth = 4;
+        ctx.strokeRect(10, 10, W - 20, H - 20);
+
+        // Rounded clip for the 3D scene capture (cover fit)
+        const px = 28;
+        const py = 26;
+        const pw = W - 56;
+        const ph = 668;
+        ctx.save();
+        ctx.beginPath();
+        if (typeof ctx.roundRect === "function") ctx.roundRect(px, py, pw, ph, 20);
+        else ctx.rect(px, py, pw, ph);
+        ctx.clip();
+
+        const srcAspect = img.width / Math.max(img.height, 1);
+        const dstAspect = pw / ph;
+        let sx = 0;
+        let sy = 0;
+        let sw = img.width;
+        let sh = img.height;
+        if (srcAspect > dstAspect) {
+          sw = img.height * dstAspect;
+          sx = (img.width - sw) * 0.5;
+        } else {
+          sh = img.width / dstAspect;
+          sy = (img.height - sh) * 0.5;
+        }
+        ctx.drawImage(img, sx, sy, sw, sh, px, py, pw, ph);
+        ctx.restore();
+
+        // Bottom caption strip & seal
+        const g = getGlobalStats();
+        const intelGot = (state.collectedIntel || []).length;
+        const intelAll = (DATA.intelItems || []).length;
+        const todayStr = getTodayDateStr();
+
+        ctx.fillStyle = "#24374d";
+        ctx.font = '900 28px "Zen Maru Gothic", "Noto Sans TC", sans-serif';
+        ctx.fillText("🏝️ 11501 普二文組・3D 複習造島紀念明信片", 34, 744);
+
+        ctx.fillStyle = "#5c7089";
+        ctx.font = '700 19px "Zen Maru Gothic", "Noto Sans TC", sans-serif';
+        ctx.fillText(
+          `📅 ${todayStr}   ｜   🔥 總進度 ${g.overallPercent}%   ｜   🏅 插旗 ${g.conqueredNodes}/${g.totalNodes}   ｜   📜 情報 ${intelGot}/${intelAll}`,
+          34,
+          782
+        );
+
+        // Vermilion square seal stamp
+        const sx0 = W - 114;
+        const sy0 = 710;
+        ctx.save();
+        ctx.translate(sx0 + 38, sy0 + 42);
+        ctx.rotate(-0.06);
+        ctx.fillStyle = "#b91c1c";
+        ctx.strokeStyle = "#991b1b";
+        ctx.lineWidth = 3;
+        if (typeof ctx.roundRect === "function") {
+          ctx.beginPath();
+          ctx.roundRect(-36, -38, 72, 76, 10);
+          ctx.fill();
+          ctx.stroke();
+        } else {
+          ctx.fillRect(-36, -38, 72, 76);
+        }
+        ctx.fillStyle = "#fff7ed";
+        ctx.font = '900 24px "Zen Maru Gothic", "Noto Sans TC", sans-serif';
+        ctx.textAlign = "center";
+        ctx.fillText("自強", 0, -6);
+        ctx.fillText("不息", 0, 24);
+        ctx.restore();
+
+        const outUrl = cv.toDataURL("image/png");
+        const a = document.createElement("a");
+        a.href = outUrl;
+        a.download = `island_postcard_${todayStr}.png`;
+        a.click();
+        showToast("📸 專屬自強明信片已合成下載！");
+      };
+      img.src = snapUrl;
+    };
+
+    document.getElementById("nav-photo-btn")?.addEventListener("click", enterPhotoMode);
+    document.getElementById("photo-exit-btn")?.addEventListener("click", exitPhotoMode);
+    document.getElementById("photo-snap-btn")?.addEventListener("click", capturePostcardPng);
+    document.getElementById("photo-fx-toggle-btn")?.addEventListener("click", () => {
+      photoCountdownPreview = !photoCountdownPreview;
+      if (sceneManager && typeof sceneManager.setCountdownSpecialFX === "function") {
+        sceneManager.setCountdownSpecialFX(autoCountdownFx || photoCountdownPreview);
+      }
+      const btn = document.getElementById("photo-fx-toggle-btn");
+      if (btn) btn.classList.toggle("is-fx-on", photoCountdownPreview || autoCountdownFx);
+      showToast(photoCountdownPreview ? "🌸 已開啟櫻花／流星慶典天象預覽！" : "🌤️ 已恢復依考前倒數天數自動判斷天象");
+    });
+
+    // Atmosphere Cycle Button (auto -> day -> sunset -> night)
     const atmoBtn = document.getElementById("atmosphere-toggle-btn");
     if (atmoBtn) {
       atmoBtn.addEventListener("click", () => {
-        const order = ["day", "sunset", "night"];
+        const order = ["auto", "day", "sunset", "night"];
         const cur = (state.catStats && state.catStats.atmosphere) || "day";
-        const next = order[(order.indexOf(cur) + 1) % order.length];
+        const idx = order.indexOf(cur);
+        const next = order[(idx >= 0 ? idx + 1 : 0) % order.length];
         state.catStats.atmosphere = next;
         saveState();
         updateAtmosphereButton();
-        sceneManager.setAtmosphereMode(next);
+        sceneManager.setAtmosphereMode(resolveEffectiveAtmosphere(next));
         syncBgmTrack();
+        if (next === "auto") {
+          const eff = resolveEffectiveAtmosphere("auto");
+          showToast(`🕰️ 已切為自動時段天色（目前依時刻顯示：${eff === "day" ? "晴空" : eff === "sunset" ? "夕陽" : "星夜"}）`);
+        }
       });
     }
+
+    setInterval(() => {
+      if (state.catStats && state.catStats.atmosphere === "auto" && sceneManager) {
+        const targetMode = resolveEffectiveAtmosphere("auto");
+        if (sceneManager.atmosphereMode !== targetMode) {
+          sceneManager.setAtmosphereMode(targetMode);
+          syncBgmTrack();
+        }
+      }
+    }, 60000);
 
     // Unified Keyboard WASD / Arrows + Jump(Space) + Actions(Q/R/E/Shift)
     const normalizeKeyCode = (e) => {
@@ -4671,6 +4879,11 @@
     window.addEventListener("keydown", (e) => {
       const tag = (e.target && e.target.tagName) || "";
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+      if (document.body.classList.contains("is-photo-mode") && e.key === "Escape") {
+        e.preventDefault();
+        exitPhotoMode();
+        return;
+      }
       const focusEl = document.getElementById("focus-overlay");
       if (focusEl && focusEl.classList.contains("is-open")) {
         if (e.key === "Escape") {

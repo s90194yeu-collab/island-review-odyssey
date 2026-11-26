@@ -325,6 +325,20 @@
       this.buoyVisited = new Set();
       this.buoyRoundCount = 0;
       this.rainbowMesh = null;
+      this.outlineEffect = null;
+      this.toonGradientMap = null;
+      this.softGlowTex = null;
+      this.stylizedMaterials = [];
+      this.oceanUniforms = null;
+      this.islandGrowthGroups = new Map();
+      this.islandTreeSlots = [];
+      this.islandCottageSlots = [];
+      this.islandLighthouseSlots = [];
+      this.nodeDeskSlots = [];
+      this.victoryOrbit = null;
+      this.countdownFxEnabled = false;
+      this.sakuraGroup = null;
+      this.meteorList = [];
       this.labelEls = new Map();
       this.clickTargets = [];
       this.interactableSpots = []; // { type, kind, islandId, nodeId, label, x, z }
@@ -502,15 +516,105 @@
       return tex;
     }
 
+    _disableOutline(mat, thickness = null) {
+      if (!mat) return mat;
+      mat.userData = Object.assign({}, mat.userData, {
+        outlineParameters: thickness === null ? { visible: false } : { thickness }
+      });
+      return mat;
+    }
+
+    _getToonGradientMap() {
+      const THREE = window.THREE;
+      if (this.toonGradientMap) return this.toonGradientMap;
+      if (!THREE) return null;
+      const colors = new Uint8Array([138, 178, 212, 240]);
+      const gMap = new THREE.DataTexture(colors, 4, 1, THREE.LuminanceFormat);
+      gMap.minFilter = THREE.NearestFilter;
+      gMap.magFilter = THREE.NearestFilter;
+      gMap.generateMipmaps = false;
+      gMap.needsUpdate = true;
+      this.toonGradientMap = gMap;
+      return gMap;
+    }
+
+    _makeToonMat(opts = {}, noOutline = false) {
+      const THREE = window.THREE;
+      const mat = new THREE.MeshToonMaterial({
+        gradientMap: this._getToonGradientMap(),
+        ...opts
+      });
+      if (noOutline) this._disableOutline(mat);
+      return mat;
+    }
+
+    _getSoftGlowTex() {
+      const THREE = window.THREE;
+      if (this.softGlowTex) return this.softGlowTex;
+      const c = document.createElement("canvas");
+      c.width = 64;
+      c.height = 64;
+      const ctx = c.getContext("2d");
+      const g = ctx.createRadialGradient(32, 32, 2, 32, 32, 30);
+      g.addColorStop(0, "rgba(255, 255, 255, 1)");
+      g.addColorStop(0.35, "rgba(255, 250, 210, 0.85)");
+      g.addColorStop(0.7, "rgba(255, 240, 170, 0.28)");
+      g.addColorStop(1, "rgba(255, 240, 170, 0)");
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, 64, 64);
+      const tex = new THREE.CanvasTexture(c);
+      tex.needsUpdate = true;
+      this.softGlowTex = tex;
+      return tex;
+    }
+
+    _getAtmoEmissiveIntensity(mode) {
+      const m = mode || this.atmosphereMode || "day";
+      if (m === "night") return 0.01;
+      if (m === "sunset") return 0.025;
+      return 0.05;
+    }
+
+    _ensureOutlineEffect() {
+      const THREE = window.THREE;
+      if (!this.outlineEffect && THREE && THREE.OutlineEffect && this.renderer) {
+        this.outlineEffect = new THREE.OutlineEffect(this.renderer, {
+          defaultThickness: 0.0022,
+          defaultColor: [0.18, 0.13, 0.12],
+          defaultAlpha: 0.85,
+          defaultKeepAlive: true
+        });
+      }
+      return this.outlineEffect;
+    }
+
+    _renderScene() {
+      if (!this.isWebGL || !this.renderer || !this.scene || !this.camera) return;
+      const effect = this._ensureOutlineEffect();
+      if (effect) {
+        effect.render(this.scene, this.camera);
+      } else {
+        this.renderer.render(this.scene, this.camera);
+      }
+    }
+
+    captureSnapshotDataUrl() {
+      if (this.isWebGL && this.renderer && this.renderer.domElement) {
+        this._renderScene();
+        return this.renderer.domElement.toDataURL("image/png");
+      }
+      if (this.fallbackCanvas) {
+        this._draw2DFallback();
+        return this.fallbackCanvas.toDataURL("image/png");
+      }
+      return "";
+    }
+
     _createShoreSvgTexture(accentColor) {
       const svg = `
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-          <circle cx="256" cy="256" r="240" fill="none" stroke="${accentColor}" stroke-width="5" stroke-dasharray="16 14" stroke-opacity="0.55" stroke-linecap="round"/>
-          <circle cx="256" cy="256" r="222" fill="none" stroke="#ffffff" stroke-width="4" stroke-dasharray="6 18" stroke-opacity="0.45" stroke-linecap="round"/>
-          <circle cx="256" cy="16" r="7" fill="#ffd32a" fill-opacity="0.85"/>
-          <circle cx="496" cy="256" r="7" fill="#ffd32a" fill-opacity="0.85"/>
-          <circle cx="256" cy="496" r="7" fill="#ffd32a" fill-opacity="0.85"/>
-          <circle cx="16" cy="256" r="7" fill="#ffd32a" fill-opacity="0.85"/>
+          <circle cx="256" cy="256" r="240" fill="none" stroke="#ffffff" stroke-width="5" stroke-dasharray="20 22" stroke-opacity="0.34" stroke-linecap="round"/>
+          <circle cx="256" cy="256" r="224" fill="none" stroke="${accentColor || "#e0f7ff"}" stroke-width="3" stroke-dasharray="10 24" stroke-opacity="0.28" stroke-linecap="round"/>
         </svg>
       `;
       return this._svgToTexture(svg, 512);
@@ -662,30 +766,108 @@
       return tex;
     }
 
-    _getEnvTextures() {
+    _makeStorybookCanvasTex(kind, rx = 1, ry = 1) {
       const THREE = window.THREE;
+      const cv = document.createElement("canvas");
+      cv.width = 512;
+      cv.height = 512;
+      const ctx = cv.getContext("2d");
+
+      if (kind === "plaza") {
+        ctx.fillStyle = "#e6d6be";
+        ctx.fillRect(0, 0, 512, 512);
+        const rows = 8;
+        const cellH = 512 / rows;
+        const cellW = 512 / 6;
+        for (let r = 0; r < rows; r++) {
+          const offset = (r % 2) * (cellW * 0.5);
+          for (let c = -1; c <= 6; c++) {
+            const x = c * cellW + offset + 3;
+            const y = r * cellH + 3;
+            const w = cellW - 6;
+            const h = cellH - 6;
+            const shade = 237 + (((r * 7 + c * 13) & 7) - 3) * 1.5;
+            ctx.fillStyle = `rgb(${Math.round(shade)}, ${Math.round(shade - 13)}, ${Math.round(shade - 29)})`;
+            ctx.beginPath();
+            if (typeof ctx.roundRect === "function") ctx.roundRect(x, y, w, h, 8);
+            else ctx.rect(x, y, w, h);
+            ctx.fill();
+            ctx.strokeStyle = "rgba(148, 126, 102, 0.48)";
+            ctx.lineWidth = 2.5;
+            ctx.stroke();
+          }
+        }
+      } else if (kind === "grass") {
+        ctx.fillStyle = "#f4f7ef";
+        ctx.fillRect(0, 0, 512, 512);
+        for (let i = 0; i < 160; i++) {
+          const x = ((i * 97) % 512);
+          const y = ((i * 173) % 512);
+          const rad = 16 + (i % 4) * 9;
+          ctx.fillStyle = i % 2 === 0 ? "rgba(255,255,255,0.22)" : "rgba(216,229,204,0.26)";
+          ctx.beginPath();
+          ctx.arc(x, y, rad, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        ctx.strokeStyle = "rgba(188, 210, 175, 0.42)";
+        ctx.lineWidth = 2;
+        ctx.lineCap = "round";
+        for (let i = 0; i < 72; i++) {
+          const x = ((i * 131 + 23) % 490) + 11;
+          const y = ((i * 211 + 41) % 490) + 11;
+          ctx.beginPath();
+          ctx.moveTo(x - 3, y + 4);
+          ctx.lineTo(x - 5, y - 3);
+          ctx.moveTo(x + 2, y + 4);
+          ctx.lineTo(x + 4, y - 4);
+          ctx.stroke();
+        }
+      } else if (kind === "sand") {
+        ctx.fillStyle = "#f7eedb";
+        ctx.fillRect(0, 0, 512, 512);
+        ctx.strokeStyle = "rgba(225, 206, 178, 0.38)";
+        ctx.lineWidth = 4;
+        for (let y = 24; y < 512; y += 64) {
+          ctx.beginPath();
+          for (let x = 0; x <= 512; x += 32) {
+            const dy = Math.sin((x / 512) * Math.PI * 2) * 8;
+            if (x === 0) ctx.moveTo(x, y + dy);
+            else ctx.lineTo(x, y + dy);
+          }
+          ctx.stroke();
+        }
+      } else {
+        ctx.fillStyle = "#efe0ca";
+        ctx.fillRect(0, 0, 512, 512);
+        for (let r = 0; r < 6; r++) {
+          ctx.fillStyle = r % 2 === 0 ? "rgba(214, 189, 158, 0.25)" : "rgba(255, 249, 238, 0.22)";
+          ctx.fillRect(0, r * 86, 512, 42);
+        }
+      }
+
+      const tex = new THREE.CanvasTexture(cv);
+      tex.wrapS = THREE.RepeatWrapping;
+      tex.wrapT = THREE.RepeatWrapping;
+      tex.repeat.set(rx, ry);
+      tex.needsUpdate = true;
+      return tex;
+    }
+
+    _getEnvTextures() {
       if (this._envTex) return this._envTex;
-      // 貼圖以 world-unit 比例平鋪，ExtrudeGeometry 使用世界座標 UV（約 0.14~0.22/m）
       const env = {
-        ocean: this._loadTileTex("assets/tex_ocean.jpg?v=7", 42, 42),
-        oceanBump: this._loadTileTex("assets/tex_ocean_bump.jpg?v=7", 42, 42),
-        sand: this._loadTileTex("assets/tex_sand.jpg?v=7", 0.15, 0.15),
-        sandBump: this._loadTileTex("assets/tex_sand_bump.jpg?v=7", 0.15, 0.15),
-        grass: this._loadTileTex("assets/tex_grass.jpg?v=7", 0.16, 0.16),
-        grassBump: this._loadTileTex("assets/tex_grass_bump.jpg?v=7", 0.16, 0.16),
-        plaza: this._loadTileTex("assets/tex_plaza.jpg?v=7", 4.6, 4.6),
-        plazaBump: this._loadTileTex("assets/tex_plaza_bump.jpg?v=7", 4.6, 4.6),
-        pathStone: this._loadTileTex("assets/tex_plaza.jpg?v=7", 7.5, 7.5),
+        sand: this._makeStorybookCanvasTex("sand", 0.22, 0.22),
+        grass: this._makeStorybookCanvasTex("grass", 0.24, 0.24),
+        plaza: this._makeStorybookCanvasTex("plaza", 9.0, 9.0),
+        pathStone: this._makeStorybookCanvasTex("plaza", 11.0, 11.0),
         wood: this._loadTileTex("assets/tex_wood.jpg?v=7", 1.4, 1.0),
-        woodBump: this._loadTileTex("assets/tex_wood_bump.jpg?v=7", 1.4, 1.0),
-        cliff: this._loadTileTex("assets/tex_cliff.jpg?v=7", 0.22, 0.22),
-        cliffTile: this._loadTileTex("assets/tex_cliff.jpg?v=7", 1.2, 0.8),
+        cliff: this._makeStorybookCanvasTex("cliff", 0.24, 0.24),
+        cliffTile: this._makeStorybookCanvasTex("cliff", 1.2, 0.8),
       };
-      env.cliffWallMat = new THREE.MeshStandardMaterial({
-        color: "#f2e2c8",
+      env.cliffWallMat = this._makeToonMat({
+        color: "#ead7be",
         map: env.cliff,
-        roughness: 0.88,
-      });
+      }, true);
       this._envTex = env;
       return env;
     }
@@ -726,8 +908,9 @@
       this.renderer.setSize(width, height);
       this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.35));
       this.renderer.shadowMap.enabled = true;
-      this.renderer.shadowMap.type = THREE.PCFShadowMap;
+      this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
       this.container.appendChild(this.renderer.domElement);
+      this._ensureOutlineEffect();
 
       if (THREE.OrbitControls) {
         this.controls = new THREE.OrbitControls(this.camera, this.renderer.domElement);
@@ -748,10 +931,10 @@
         });
       }
 
-      this.hemiLight = new THREE.HemisphereLight("#d8f0ff", "#3d749c", 0.68);
+      this.hemiLight = new THREE.HemisphereLight("#d8f0ff", "#3d749c", 0.42);
       this.scene.add(this.hemiLight);
 
-      this.sunLight = new THREE.DirectionalLight("#fff5dc", 0.85);
+      this.sunLight = new THREE.DirectionalLight("#fff5dc", 0.44);
       this.sunLight.position.set(36, 68, 34);
       this.sunLight.castShadow = true;
       this.sunLight.shadow.mapSize.width = 1024;
@@ -765,7 +948,7 @@
       this.sunLight.shadow.camera.bottom = -d;
       this.scene.add(this.sunLight);
 
-      this.rimLight = new THREE.DirectionalLight("#63a9f2", 0.22);
+      this.rimLight = new THREE.DirectionalLight("#63a9f2", 0.08);
       this.rimLight.position.set(-30, 18, -28);
       this.scene.add(this.rimLight);
 
@@ -781,6 +964,7 @@
       this._buildOcean();
       this._buildClouds();
       this._buildSkyAndOceanLife();
+      this._buildCountdownSkyFX();
       this._buildCentralHub();
       this.islandsData.forEach((island, idx) => this._buildIsland(island, idx));
       this._buildRadiatingBridges();
@@ -833,27 +1017,31 @@
       for (let i = 0; i < starCount; i++) {
         const theta = Math.random() * Math.PI * 2;
         const phi = Math.random() * Math.PI * 0.44;
-        const r = 100 + Math.random() * 45;
+        const r = 220 + Math.random() * 60;
         positions[i * 3] = r * Math.sin(phi) * Math.cos(theta);
-        positions[i * 3 + 1] = 20 + r * Math.cos(phi) * 0.65;
+        positions[i * 3 + 1] = 35 + r * Math.cos(phi) * 0.7;
         positions[i * 3 + 2] = r * Math.sin(phi) * Math.sin(theta);
       }
       const starGeo = new THREE.BufferGeometry();
       starGeo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
       const starMat = new THREE.PointsMaterial({
         color: "#fff8d6",
-        size: 0.95,
+        map: this._getSoftGlowTex(),
+        size: 2.2,
         transparent: true,
         opacity: 0.25,
+        blending: THREE.AdditiveBlending,
+        alphaTest: 0.01,
         depthWrite: false
       });
+      this._disableOutline(starMat);
       this.starField = new THREE.Points(starGeo, starMat);
       this.scene.add(this.starField);
     }
 
     _buildOcean() {
       const THREE = window.THREE;
-      const oceanGeo = new THREE.PlaneGeometry(520, 520, 36, 36);
+      const oceanGeo = new THREE.PlaneGeometry(520, 520, 48, 48);
       oceanGeo.rotateX(-Math.PI / 2);
 
       const posAttr = oceanGeo.attributes.position;
@@ -862,15 +1050,65 @@
         this.oceanBaseY.push(posAttr.getY(i));
       }
 
-      const env = this._getEnvTextures();
-      const oceanMat = new THREE.MeshStandardMaterial({
-        color: "#8cdcf5",
-        map: env.ocean,
-        bumpMap: env.oceanBump,
-        bumpScale: 0.15,
-        roughness: 0.28,
-        metalness: 0.08
+      const islVecs = [new THREE.Vector3(0, 0, 12.6)];
+      (this.islandsData || []).slice(0, 6).forEach((isl) => {
+        islVecs.push(new THREE.Vector3(isl.position.x, isl.position.z, (isl.radius || 11) * 0.96));
       });
+      while (islVecs.length < 7) islVecs.push(new THREE.Vector3(999, 999, 1));
+
+      this.oceanUniforms = {
+        uTime: { value: 0 },
+        uShallowColor: { value: new THREE.Color("#5fd0e8") },
+        uDeepColor: { value: new THREE.Color("#2d8fca") },
+        uFoamColor: { value: new THREE.Color("#ffffff") },
+        uFogColor: { value: new THREE.Color("#adddf7") },
+        uFogDensity: { value: 0.0017 },
+        uIslands: { value: islVecs }
+      };
+
+      const oceanMat = new THREE.ShaderMaterial({
+        uniforms: this.oceanUniforms,
+        vertexShader: [
+          "varying vec3 vWorldPos;",
+          "void main() {",
+          "  vec4 wp = modelMatrix * vec4(position, 1.0);",
+          "  vWorldPos = wp.xyz;",
+          "  gl_Position = projectionMatrix * viewMatrix * wp;",
+          "}"
+        ].join("\n"),
+        fragmentShader: [
+          "uniform float uTime;",
+          "uniform vec3 uShallowColor;",
+          "uniform vec3 uDeepColor;",
+          "uniform vec3 uFoamColor;",
+          "uniform vec3 uFogColor;",
+          "uniform float uFogDensity;",
+          "uniform vec3 uIslands[7];",
+          "varying vec3 vWorldPos;",
+          "void main() {",
+          "  float minDist = 100.0;",
+          "  for (int i = 0; i < 7; i++) {",
+          "    float d = length(vWorldPos.xz - uIslands[i].xy) - uIslands[i].z;",
+          "    minDist = min(minDist, d);",
+          "  }",
+          "  float shallowBlend = smoothstep(0.0, 5.2, max(0.0, minDist));",
+          "  vec3 col = mix(uShallowColor, uDeepColor, shallowBlend);",
+          "  float wave1 = sin(vWorldPos.x * 0.34 + uTime * 1.15) * cos(vWorldPos.z * 0.31 - uTime * 0.92);",
+          "  float wave2 = sin((vWorldPos.x + vWorldPos.z) * 0.22 - uTime * 0.8);",
+          "  float crest = smoothstep(0.66, 0.88, wave1 * 0.55 + wave2 * 0.45 + 0.5);",
+          "  col = mix(col, mix(uShallowColor, uFoamColor, 0.45), crest * 0.22);",
+          "  float shorePulse = sin(minDist * 3.8 - uTime * 2.6);",
+          "  float shoreFoam = (1.0 - smoothstep(0.0, 2.3, max(0.0, minDist))) * smoothstep(0.35, 0.78, shorePulse + 0.3);",
+          "  float tightEdge = 1.0 - smoothstep(0.0, 0.75, max(0.0, minDist));",
+          "  col = mix(col, uFoamColor, clamp(max(shoreFoam * 0.55, tightEdge * 0.65), 0.0, 0.85));",
+          "  float distCam = length(cameraPosition - vWorldPos);",
+          "  float fogFactor = 1.0 - exp(-uFogDensity * uFogDensity * distCam * distCam);",
+          "  col = mix(col, uFogColor, clamp(fogFactor, 0.0, 1.0));",
+          "  gl_FragColor = vec4(col, 1.0);",
+          "}"
+        ].join("\n")
+      });
+      this._disableOutline(oceanMat);
 
       const oceanMesh = new THREE.Mesh(oceanGeo, oceanMat);
       oceanMesh.position.y = -0.35;
@@ -881,7 +1119,7 @@
 
       const deepGeo = new THREE.PlaneGeometry(560, 560);
       deepGeo.rotateX(-Math.PI / 2);
-      const deepMat = new THREE.MeshBasicMaterial({ color: "#1579ad" });
+      const deepMat = this._disableOutline(new THREE.MeshBasicMaterial({ color: "#1d6ea0" }));
       const deepMesh = new THREE.Mesh(deepGeo, deepMat);
       deepMesh.position.y = -1.8;
       this.scene.add(deepMesh);
@@ -927,11 +1165,12 @@
 
       // 1. Cross-sea Rainbow Arch (Daylight)
       const rainbowGroup = new THREE.Group();
-      const rainbowColors = ["#ff6b6b", "#ffa502", "#ffd32a", "#2ed573", "#1e90ff", "#9b59b6"];
+      const rainbowColors = ["#f9a8d4", "#fdba74", "#fde68a", "#a7f3d0", "#93c5fd", "#c4b5fd"];
       rainbowColors.forEach((col, i) => {
+        const arcMat = this._disableOutline(new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.42 }));
         const arc = new THREE.Mesh(
           new THREE.TorusGeometry(62 - i * 0.72, 0.38, 8, 56, Math.PI),
-          new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.5 })
+          arcMat
         );
         rainbowGroup.add(arc);
       });
@@ -1136,12 +1375,16 @@
       const ffGeo = new THREE.BufferGeometry();
       ffGeo.setAttribute("position", new THREE.BufferAttribute(ffPos, 3));
       const ffMat = new THREE.PointsMaterial({
-        color: "#fef08a",
-        size: 0.44,
+        color: "#fff3a6",
+        map: this._getSoftGlowTex(),
+        size: 0.76,
         transparent: true,
         opacity: 0,
+        blending: THREE.AdditiveBlending,
+        alphaTest: 0.01,
         depthWrite: false
       });
+      this._disableOutline(ffMat);
       const ffPoints = new THREE.Points(ffGeo, ffMat);
       ffPoints.visible = false;
       this.scene.add(ffPoints);
@@ -1157,67 +1400,172 @@
       });
     }
 
-    /* ==================== 六科專屬地景配色表與 Higgsfield 3D 景觀系統 ==================== */
+    _buildCountdownSkyFX() {
+      const THREE = window.THREE;
+      if (!this.scene) return;
+      const glowTex = this._getSoftGlowTex();
+
+      // 1) Daytime/Sunset cherry-blossom petals
+      const sCount = 52;
+      const sPos = new Float32Array(sCount * 3);
+      const sSeeds = [];
+      for (let i = 0; i < sCount; i++) {
+        const ang = Math.random() * Math.PI * 2;
+        const dist = 4 + Math.random() * 44;
+        sPos[i * 3] = Math.cos(ang) * dist;
+        sPos[i * 3 + 1] = 2 + Math.random() * 20;
+        sPos[i * 3 + 2] = Math.sin(ang) * dist;
+        sSeeds.push({
+          bx: sPos[i * 3],
+          bz: sPos[i * 3 + 2],
+          spd: 0.9 + Math.random() * 0.85,
+          ph: Math.random() * Math.PI * 2
+        });
+      }
+      const sGeo = new THREE.BufferGeometry();
+      sGeo.setAttribute("position", new THREE.BufferAttribute(sPos, 3));
+      const sMat = this._disableOutline(
+        new THREE.PointsMaterial({
+          color: "#ffb7d5",
+          map: glowTex,
+          size: 0.56,
+          transparent: true,
+          opacity: 0.88,
+          depthWrite: false,
+          alphaTest: 0.02
+        })
+      );
+      const sakura = new THREE.Points(sGeo, sMat);
+      sakura.visible = false;
+      this.scene.add(sakura);
+      this.sakuraGroup = sakura;
+
+      // 2) Starry-night shooting meteors
+      this.meteorList = [];
+      for (let m = 0; m < 3; m++) {
+        const mGeo = new THREE.CylinderGeometry(0.02, 0.14, 4.4, 6);
+        const mMat = this._disableOutline(
+          new THREE.MeshBasicMaterial({
+            color: m === 0 ? "#fef08a" : "#e0f2fe",
+            transparent: true,
+            opacity: 0,
+            depthWrite: false
+          })
+        );
+        const mesh = new THREE.Mesh(mGeo, mMat);
+        mesh.rotation.z = Math.PI * 0.34;
+        mesh.rotation.x = 0.25;
+        mesh.visible = false;
+        this.scene.add(mesh);
+        this.meteorList.push({
+          mesh,
+          mat: mMat,
+          offset: m * 3.1,
+          period: 7.5 + m * 2.2
+        });
+      }
+
+      this.ambientUpdaters.push((t) => {
+        const on = Boolean(this.countdownFxEnabled);
+        const isNight = this.atmosphereMode === "night";
+        if (this.sakuraGroup) {
+          this.sakuraGroup.visible = on && !isNight;
+          if (this.sakuraGroup.visible) {
+            const arr = sGeo.attributes.position.array;
+            for (let i = 0; i < sCount; i++) {
+              const sd = sSeeds[i];
+              const fall = 21 - ((t * sd.spd + sd.ph * 3) % 19);
+              arr[i * 3] = sd.bx + Math.sin(t * 0.9 + sd.ph) * 1.8;
+              arr[i * 3 + 1] = fall;
+              arr[i * 3 + 2] = sd.bz + Math.cos(t * 0.8 + sd.ph) * 1.4;
+            }
+            sGeo.attributes.position.needsUpdate = true;
+          }
+        }
+        this.meteorList.forEach((mt, idx) => {
+          if (!on || !isNight) {
+            mt.mesh.visible = false;
+            return;
+          }
+          const cyc = ((t + mt.offset) % mt.period) / 1.4;
+          if (cyc <= 1) {
+            mt.mesh.visible = true;
+            const startX = -52 + idx * 34;
+            const startZ = -65 + idx * 14;
+            mt.mesh.position.set(startX + cyc * 46, 44 - cyc * 22, startZ + cyc * 14);
+            mt.mat.opacity = Math.sin(cyc * Math.PI) * 0.92;
+          } else {
+            mt.mesh.visible = false;
+          }
+        });
+      });
+    }
+
+    setCountdownSpecialFX(enabled) {
+      this.countdownFxEnabled = Boolean(enabled);
+    }
+
+    /* ==================== 六科專屬地景配色表與繪本模型屋統一色票 ==================== */
     _getIslandTheme(island) {
       const THEMES = {
         chinese: {
-          grassColor: "#63b37a",
-          hillColor: "#539b66",
-          sandColor: "#f3e3c3",
-          cottageWall: "#fff5e4",
-          cottageRoof: "#b91c1c",
+          grassColor: "#7bc47f",
+          hillColor: "#62ad6b",
+          sandColor: "#f6e6c8",
+          cottageWall: "#fff7ea",
+          cottageRoof: "#d96b6b",
           treeStyle: "cherry",
-          foliageColors: ["#ff9ff3", "#ffc8dd", "#f48fb1"],
+          foliageColors: ["#f9b4c4", "#ffd5df", "#95d59c"],
           dioramaScale: [6.0, 5.4]
         },
         english: {
-          grassColor: "#6ec05f",
-          hillColor: "#58a449",
-          sandColor: "#f7e3af",
-          cottageWall: "#f5e1c0",
-          cottageRoof: "#d64531",
+          grassColor: "#82c97a",
+          hillColor: "#68b064",
+          sandColor: "#f7e8c4",
+          cottageWall: "#fff6e5",
+          cottageRoof: "#e07a5f",
           treeStyle: "blossom",
-          foliageColors: ["#ffd32a", "#a29bfe", "#ff9ff3"],
+          foliageColors: ["#f7d060", "#a8d88e", "#f9c6cf"],
           dioramaScale: [5.9, 5.3]
         },
         listening: {
-          grassColor: "#4668a6",
-          hillColor: "#36508a",
-          sandColor: "#a5c4d4",
-          cottageWall: "#1e293b",
-          cottageRoof: "#7c3aed",
+          grassColor: "#6faea8",
+          hillColor: "#589691",
+          sandColor: "#e9ece8",
+          cottageWall: "#eef5f9",
+          cottageRoof: "#6c8cd5",
           treeStyle: "crystal",
-          foliageColors: ["#a29bfe", "#48dbfb", "#ff7eb3"],
+          foliageColors: ["#9bc4e2", "#b8b5e8", "#8dd3c7"],
           dioramaScale: [5.5, 5.8]
         },
         geography: {
-          grassColor: "#5b8c6e",
-          hillColor: "#4d785e",
-          sandColor: "#e6dcc8",
-          cottageWall: "#d9b382",
-          cottageRoof: "#e67e22",
+          grassColor: "#77b278",
+          hillColor: "#619965",
+          sandColor: "#efe3cc",
+          cottageWall: "#f6ead4",
+          cottageRoof: "#d88c51",
           treeStyle: "ice_lava",
-          foliageColors: ["#e0f7ff", "#3b8d99", "#2f855a"],
+          foliageColors: ["#5fa38b", "#92c4a8", "#e8f6f8"],
           dioramaScale: [6.0, 5.5]
         },
         civics: {
-          grassColor: "#52b788",
-          hillColor: "#40916c",
-          sandColor: "#f1eee6",
-          cottageWall: "#f8fafc",
-          cottageRoof: "#0f766e",
+          grassColor: "#73be89",
+          hillColor: "#5aa474",
+          sandColor: "#f4efe2",
+          cottageWall: "#faf7f0",
+          cottageRoof: "#4a9d8f",
           treeStyle: "cypress",
-          foliageColors: ["#2d6a4f", "#40916c", "#52b788"],
+          foliageColors: ["#63b083", "#88c999", "#b7dfc0"],
           dioramaScale: [5.8, 5.5]
         },
         history: {
-          grassColor: "#8fb359",
-          hillColor: "#c59b57",
-          sandColor: "#ead3a8",
-          cottageWall: "#ede0c8",
-          cottageRoof: "#b45309",
+          grassColor: "#95bc6c",
+          hillColor: "#80a65a",
+          sandColor: "#f1dfbc",
+          cottageWall: "#f7edd8",
+          cottageRoof: "#c98548",
           treeStyle: "ginkgo",
-          foliageColors: ["#f6b93b", "#e58e26", "#f8c291"],
+          foliageColors: ["#f4c45c", "#eab04d", "#a6c975"],
           dioramaScale: [5.8, 5.5]
         }
       };
@@ -1368,36 +1716,58 @@
     _prepareGltfMeshes(model, isPantherSlot, clickData = null) {
       const THREE = window.THREE;
       const useShadows = Boolean(isPantherSlot || (clickData && clickData.isHub));
-      const envMap = this._getGlbEnvMap();
+      const isArchitectural = Boolean(clickData && (clickData.isHub || clickData.islandId));
+      const outlineThickness = isArchitectural ? 0.0015 : 0.0022;
+      const gradMap = this._getToonGradientMap();
+      const maxAniso =
+        this.renderer && this.renderer.capabilities && typeof this.renderer.capabilities.getMaxAnisotropy === "function"
+          ? Math.min(8, this.renderer.capabilities.getMaxAnisotropy())
+          : 4;
+
       model.traverse((n) => {
         if (n.isMesh) {
           n.castShadow = useShadows;
           n.receiveShadow = Boolean(clickData && clickData.isHub);
           if (n.isSkinnedMesh) n.frustumCulled = false;
-          // Meshy / Higgsfield / Tripo PBR 匯出材質 metalness=1 在無環境貼圖時會全黑，統一補亮並保持 PBR 貼圖銳利
+
           const mat = n.material;
-          if (mat && mat.isMeshStandardMaterial) {
-            mat.metalnessMap = null;
-            mat.metalness = 0;
-            mat.roughness = mat.roughnessMap ? 0.92 : 0.85;
-            if (envMap) {
-              mat.envMap = envMap;
-              mat.envMapIntensity = 0.35;
+          if (mat && (mat.isMeshStandardMaterial || mat.isMeshPhongMaterial)) {
+            const toonParams = {
+              color: mat.color ? mat.color.clone() : new THREE.Color(0xffffff),
+              map: mat.map || null,
+              gradientMap: gradMap,
+              transparent: Boolean(mat.transparent),
+              opacity: typeof mat.opacity === "number" ? mat.opacity : 1,
+              alphaTest: mat.alphaTest || 0,
+              side: mat.side !== undefined ? mat.side : THREE.FrontSide,
+              skinning: Boolean(n.isSkinnedMesh),
+              morphTargets: Boolean(mat.morphTargets),
+              vertexColors: Boolean(mat.vertexColors)
+            };
+            if (mat.normalMap) {
+              mat.normalMap.anisotropy = maxAniso;
+              toonParams.normalMap = mat.normalMap;
+              toonParams.normalScale = new THREE.Vector2(0.4, 0.4);
             }
-            const maxAniso =
-              this.renderer && this.renderer.capabilities && typeof this.renderer.capabilities.getMaxAnisotropy === "function"
-                ? Math.min(8, this.renderer.capabilities.getMaxAnisotropy())
-                : 4;
             if (mat.map) {
               mat.map.anisotropy = maxAniso;
-              mat.emissive = new THREE.Color(0xffffff);
-              mat.emissiveMap = mat.map;
-              mat.emissiveIntensity = 0.09;
+              toonParams.emissive = new THREE.Color(0xffffff);
+              toonParams.emissiveMap = mat.map;
+              toonParams.emissiveIntensity = this._getAtmoEmissiveIntensity();
+            } else if (mat.emissive) {
+              toonParams.emissive = mat.emissive.clone();
+              toonParams.emissiveIntensity = Math.min(mat.emissiveIntensity || 0, 0.28);
             }
-            if (mat.normalMap) mat.normalMap.anisotropy = maxAniso;
-            if (mat.roughnessMap) mat.roughnessMap.anisotropy = maxAniso;
-            mat.needsUpdate = true;
+            const toonMat = new THREE.MeshToonMaterial(toonParams);
+            this._disableOutline(toonMat, outlineThickness);
+            n.material = toonMat;
+            if (toonParams.emissiveMap) {
+              this.stylizedMaterials.push(toonMat);
+            }
+          } else if (mat && mat.isMeshToonMaterial) {
+            this._disableOutline(mat, outlineThickness);
           }
+
           if (isPantherSlot) {
             n.userData = Object.assign({}, n.userData, { isPanther: true });
             this.clickTargets.push(n);
@@ -1545,7 +1915,7 @@
         const model = gltf.scene || (gltf.scenes && gltf.scenes[0]);
         if (!model) return;
         let box = this._measureModelBox(model);
-        const targetH = slot === "panther" ? 1.9 : slot === "hub" ? 7.6 : 7.8;
+        const targetH = slot === "panther" ? 1.85 : slot === "hub" ? 9.0 : 7.8;
         const scale = targetH / Math.max(box.max.y - box.min.y, 0.001);
         model.scale.setScalar(scale);
         box = this._measureModelBox(model);
@@ -1772,7 +2142,7 @@
 
       // 換裝 4 件輕量 3D 共用道具（寶箱、漂流瓶、熱氣球、校園長椅），全場 clone 共用幾何與貼圖
       const propLoaders = [
-        ["assets/prop_chest.glb?v=16", 0.88, "height", (base) => {
+        ["assets/prop_chest.glb?v=16", 0.62, "height", (base) => {
           if (!this.islandChests || !this.islandChests.length) return;
           this.clickTargets = this.clickTargets.filter((t) => !(t.userData && t.userData.isChestProp));
           this.islandChests.forEach(({ chest, island }) => {
@@ -1853,7 +2223,7 @@
             bench.add(clone);
           });
         }],
-        ["assets/prop_lamp.glb?v=16", 2.18, "height", (base) => {
+        ["assets/prop_lamp.glb?v=16", 2.65, "height", (base) => {
           if (!this.hubLampGroups) return;
           const lampGlowColor = this.atmosphereMode === "day" ? "#bae6fd" : this.atmosphereMode === "sunset" ? "#fde047" : "#fef08a";
           this.hubLampGroups.forEach(({ group, rotY }) => {
@@ -1866,20 +2236,20 @@
                 c.receiveShadow = true;
               }
             });
-            const bulbMat = new THREE.MeshBasicMaterial({ color: lampGlowColor });
+            const bulbMat = this._disableOutline(new THREE.MeshBasicMaterial({ color: lampGlowColor }));
             this.nightGlowMaterials.push(bulbMat);
-            const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.15, 10, 10), bulbMat);
-            bulb.position.set(0, 1.82, 0);
+            const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.16, 10, 10), bulbMat);
+            bulb.position.set(0, 2.22, 0);
             group.add(clone, bulb);
           });
           if (!this.hubNightLight && this.hubGroup) {
-            const pLight = new THREE.PointLight("#ffd28a", this.atmosphereMode === "night" ? 1.15 : this.atmosphereMode === "sunset" ? 0.55 : 0, 26);
+            const pLight = new THREE.PointLight("#ffd28a", this.atmosphereMode === "night" ? 0.55 : this.atmosphereMode === "sunset" ? 0.35 : 0, 18);
             pLight.position.set(0, 4.8, 0.5);
             this.hubGroup.add(pLight);
             this.hubNightLight = pLight;
           }
         }],
-        ["assets/prop_mailbox.glb?v=16", 1.12, "height", (base) => {
+        ["assets/prop_mailbox.glb?v=16", 1.05, "height", (base) => {
           if (!this.encounterMailboxes) return;
           this.clickTargets = this.clickTargets.filter((t) => !(t.userData && t.userData.isMailboxProp));
           this.encounterMailboxes.forEach(({ mailbox, islandId, nodeId, rotY }) => {
@@ -1919,6 +2289,7 @@
                   c.material = c.material.clone();
                   c.material.color.lerp(tintCol, 0.35);
                   c.material.emissive = tintCol.clone();
+                  c.material.emissiveMap = null;
                   c.material.emissiveIntensity = 0.34;
                   entry.glbMats.push(c.material);
                 }
@@ -1944,23 +2315,128 @@
                 this.clickTargets.push(c);
               }
             });
-            const bGlowMat = new THREE.MeshBasicMaterial({ color: glowCol });
+            const bGlowMat = this._disableOutline(new THREE.MeshBasicMaterial({ color: glowCol }));
             this.nightGlowMaterials.push(bGlowMat);
             const bGlow = new THREE.Mesh(new THREE.SphereGeometry(0.14, 8, 8), bGlowMat);
             bGlow.position.set(0, 1.16, 0);
             bGlow.userData = { isBuoy: true, buoyIdx: idx };
             this.clickTargets.push(bGlow);
-            const ringMat = new THREE.MeshBasicMaterial({
-              color: this.buoyVisited.has(idx) ? "#34d399" : "#ffd32a",
-              transparent: true,
-              opacity: 0.72,
-              side: THREE.DoubleSide
-            });
+            const ringMat = this._disableOutline(
+              new THREE.MeshBasicMaterial({
+                color: this.buoyVisited.has(idx) ? "#34d399" : "#ffd32a",
+                transparent: true,
+                opacity: 0.72,
+                side: THREE.DoubleSide
+              })
+            );
             const pRing = new THREE.Mesh(new THREE.RingGeometry(0.95, 1.16, 20), ringMat);
             pRing.rotation.x = -Math.PI / 2;
             pRing.position.y = 0.08;
             buoy.userData.patrolRingMat = ringMat;
             buoy.add(clone, bGlow, pRing);
+          });
+        }],
+        ["assets/prop_lighthouse.glb?v=20", 5.2, "height", (base) => {
+          if (!this.islandLighthouseSlots || !this.islandLighthouseSlots.length) return;
+          this.clickTargets = this.clickTargets.filter((t) => !(t.userData && t.userData.isLighthouseProp));
+          this.islandLighthouseSlots.forEach(({ slot, island }) => {
+            this._clearGroupChildren(slot);
+            const clone = base.clone();
+            clone.rotation.y = -0.35;
+            clone.traverse((c) => {
+              if (c.isMesh) {
+                c.castShadow = true;
+                c.receiveShadow = true;
+                c.userData = { islandId: island.id, isLighthouseProp: true };
+                this.clickTargets.push(c);
+              }
+            });
+            slot.add(clone);
+          });
+        }],
+        ["assets/prop_tree_round.glb?v=20", 2.65, "height", (base) => {
+          if (!this.islandTreeSlots || !this.islandTreeSlots.length) return;
+          this.islandTreeSlots.forEach((entry, idx) => {
+            if (entry.isPine) return;
+            this._clearGroupChildren(entry.slot);
+            const clone = base.clone();
+            clone.rotation.y = idx * 1.15;
+            const tintCol = new THREE.Color(entry.tint || "#95d59c");
+            clone.traverse((c) => {
+              if (c.isMesh) {
+                c.castShadow = true;
+                c.receiveShadow = true;
+                if (c.material) {
+                  c.material = c.material.clone();
+                  c.material.color.lerp(tintCol, 0.28);
+                  if (c.material.emissiveMap) {
+                    c.material.emissiveIntensity = this._getAtmoEmissiveIntensity();
+                    this.stylizedMaterials.push(c.material);
+                  }
+                }
+              }
+            });
+            entry.slot.add(clone);
+          });
+        }],
+        ["assets/prop_tree_pine.glb?v=20", 2.85, "height", (base) => {
+          if (!this.islandTreeSlots || !this.islandTreeSlots.length) return;
+          this.islandTreeSlots.forEach((entry, idx) => {
+            if (!entry.isPine) return;
+            this._clearGroupChildren(entry.slot);
+            const clone = base.clone();
+            clone.rotation.y = idx * 0.95;
+            clone.traverse((c) => {
+              if (c.isMesh) {
+                c.castShadow = true;
+                c.receiveShadow = true;
+              }
+            });
+            entry.slot.add(clone);
+          });
+        }],
+        ["assets/prop_node_desk.glb?v=20", 1.05, "height", (base) => {
+          if (!this.nodeDeskSlots || !this.nodeDeskSlots.length) return;
+          this.clickTargets = this.clickTargets.filter((t) => !(t.userData && t.userData.isDeskProp));
+          this.nodeDeskSlots.forEach(({ slot, islandId, nodeId }) => {
+            this._clearGroupChildren(slot);
+            const clone = base.clone();
+            clone.position.set(-0.14, 0.16, 0.04);
+            clone.traverse((c) => {
+              if (c.isMesh) {
+                c.castShadow = true;
+                c.receiveShadow = true;
+                c.userData = { islandId, nodeId, isDeskProp: true };
+                this.clickTargets.push(c);
+              }
+            });
+            slot.add(clone);
+          });
+        }],
+        ["assets/prop_cottage.glb?v=20", 2.45, "height", (base) => {
+          if (!this.islandCottageSlots || !this.islandCottageSlots.length) return;
+          this.clickTargets = this.clickTargets.filter((t) => !(t.userData && t.userData.isCottageProp));
+          this.islandCottageSlots.forEach(({ slot, island, winMat }) => {
+            this._clearGroupChildren(slot);
+            const clone = base.clone();
+            clone.traverse((c) => {
+              if (c.isMesh) {
+                c.castShadow = true;
+                c.receiveShadow = true;
+                c.userData = { islandId: island.id, isCottageProp: true };
+                this.clickTargets.push(c);
+              }
+            });
+            slot.add(clone);
+            if (winMat) {
+              const cBox = this._measureModelBox(clone);
+              const frontZ = Math.max(0.65, cBox.max.z * 0.82);
+              [-0.45, 0.45].forEach((lx) => {
+                const sconce = new THREE.Mesh(new THREE.SphereGeometry(0.09, 8, 8), winMat);
+                sconce.position.set(lx, 1.05, frontZ);
+                slot.add(sconce);
+              });
+            }
           });
         }]
       ];
@@ -2094,7 +2570,7 @@
       this._clearGroupChildren(statueGroup);
       const ped = new THREE.Mesh(
         new THREE.CylinderGeometry(0.65, 0.8, 0.56, 16),
-        new THREE.MeshStandardMaterial({ color: "#ede6d6", roughness: 0.65 })
+        this._makeToonMat({ color: "#ede6d6" })
       );
       ped.position.y = 0.28;
       const goldCat = base.clone();
@@ -2103,11 +2579,11 @@
       goldCat.traverse((n) => {
         if (n.isMesh && n.material) {
           const gm = n.material.clone();
+          gm.map = null;
+          gm.emissiveMap = null;
           gm.color = new THREE.Color("#ffd32a");
-          gm.emissive = new THREE.Color("#b45309");
-          gm.emissiveIntensity = 0.16;
-          gm.metalness = 0.45;
-          gm.roughness = 0.28;
+          gm.emissive = new THREE.Color("#d97706");
+          gm.emissiveIntensity = 0.24;
           n.material = gm;
         }
       });
@@ -2146,7 +2622,7 @@
       if (!this.walkerCat || !this.walkerCat.group) return;
       this.clickTargets = this.clickTargets.filter((t) => !(t.userData && t.userData.isWalkerCat));
       const walkerClone = this._cloneSkinnedScene(base);
-      walkerClone.scale.multiplyScalar(0.68);
+      walkerClone.scale.multiplyScalar(0.81);
       walkerClone.traverse((n) => {
         if (n.isMesh) {
           n.userData = Object.assign({}, n.userData, { isWalkerCat: true });
@@ -2170,7 +2646,7 @@
       const salmonWrap = new THREE.Group();
       const salmonMesh = this._cloneSkinnedScene(base);
       salmonMesh.scale.multiplyScalar(0.86);
-      salmonMesh.position.y -= 0.72;
+      salmonMesh.position.y -= 0.52;
       salmonMesh.traverse((n) => {
         if (n.isMesh) {
           n.userData = Object.assign({}, n.userData, { isSalmon: true });
@@ -2191,14 +2667,14 @@
         return;
       }
       const loader = new THREE.GLTFLoader();
-      this._loadCatVariant(loader, url, 2.05, (base) => {
+      this._loadCatVariant(loader, url, 1.38, (base) => {
         // 1. 中央廣場迎賓守護貓（先以預設模型兜底，待布偶《史珂》載入後升級）
         this._mountHubCat(base);
 
         // 2. 島嶼巡邏學士貓同步升級為真 3D 公仔
         if (this.walkerCat && this.walkerCat.group) {
           const walkerClone = base.clone();
-          walkerClone.scale.multiplyScalar(0.72);
+          walkerClone.scale.multiplyScalar(0.83);
           this._clearGroupChildren(this.walkerCat.group);
           this.walkerCat.group.add(walkerClone);
         }
@@ -2206,28 +2682,28 @@
         // 3. 海上帆船船長貓（先以預設兜底，待海盜船長貓載入後升級）
         if (this.captainCat && this.captainCat.group) {
           const captainClone = base.clone();
-          captainClone.scale.multiplyScalar(0.56);
+          captainClone.scale.multiplyScalar(0.78);
           this._clearGroupChildren(this.captainCat.group);
           this.captainCat.group.add(captainClone);
         }
 
         // 4. 先掛上預設虎斑貓兜底（地理島阿岳維持橘貓，其餘各島接著升級專屬貓福珊迪角色）
         if (this.islandCats) {
-          this.islandCats.forEach((_, islandId) => this._mountIslandCat(islandId, base, 0.76));
+          this.islandCats.forEach((_, islandId) => this._mountIslandCat(islandId, base, 0.93));
         }
 
         // 5. 商店解鎖「自強不息黃金貓雕像」共用 cat_3d.glb 鍍金材質
         this._mountGoldStatue(base);
 
-        // 6. 載入 7 隻《答對率》貓福珊迪 Q 彈水彩風格 H3.0/H3.5 + 1024 PBR + 眼神光補亮模型
+        // 6. 載入 7 隻《答對率》貓福珊迪 Q 彈水彩風格 H3.0/H3.5 + 1024 繪本統一比例模型
         const breedConfigs = [
-          { url: "assets/cat_ragdoll_3d.glb?v=14", height: 2.18, hub: true, islands: ["history"], scale: 0.86 },
-          { url: "assets/cat_white_3d.glb?v=14", height: 2.18, islands: ["chinese"], scale: 0.86 },
-          { url: "assets/cat_calico_3d.glb?v=14", height: 2.18, islands: ["civics"], scale: 0.86 },
-          { url: "assets/cat_tuxedo_3d.glb?v=14", height: 2.18, islands: ["english", "listening"], scale: 0.86 },
-          { url: "assets/cat_geo_3d.glb?v=15", height: 2.18, islands: ["geography"], walker: true, scale: 0.86 },
-          { url: "assets/cat_pirate_3d.glb?v=14", height: 2.0, captain: true },
-          { url: "assets/cat_salmon_3d.glb?v=15", height: 1.9, salmon: true }
+          { url: "assets/cat_ragdoll_3d.glb?v=14", height: 1.42, hub: true, islands: ["history"], scale: 0.93 },
+          { url: "assets/cat_white_3d.glb?v=14", height: 1.42, islands: ["chinese"], scale: 0.93 },
+          { url: "assets/cat_calico_3d.glb?v=14", height: 1.42, islands: ["civics"], scale: 0.93 },
+          { url: "assets/cat_tuxedo_3d.glb?v=14", height: 1.42, islands: ["english", "listening"], scale: 0.93 },
+          { url: "assets/cat_geo_3d.glb?v=15", height: 1.42, islands: ["geography"], walker: true, scale: 0.93 },
+          { url: "assets/cat_pirate_3d.glb?v=14", height: 1.44, captain: true },
+          { url: "assets/cat_salmon_3d.glb?v=15", height: 1.42, salmon: true }
         ];
         breedConfigs.forEach((cfg) => {
           this._loadCatVariant(loader, cfg.url, cfg.height, (variantBase, animations) => {
@@ -2259,7 +2735,7 @@
           const model = gltf.scene || (gltf.scenes && gltf.scenes[0]);
           if (!model) return;
           let box = this._measureModelBox(model);
-          const targetH = 1.9;
+          const targetH = 1.85;
           model.scale.setScalar(targetH / Math.max(box.max.y - box.min.y, 0.001));
           box = this._measureModelBox(model);
           model.position.y -= box.min.y;
@@ -2526,27 +3002,18 @@
       hub.position.set(0, 0, 0);
 
       const env = this._getEnvTextures();
-      const sandMat = new THREE.MeshStandardMaterial({
-        color: "#ecd7b6",
-        map: env.sand,
-        bumpMap: env.sandBump,
-        bumpScale: 0.09,
-        roughness: 0.86
-      });
-      const grassMat = new THREE.MeshStandardMaterial({
-        color: "#78bf86",
-        map: env.grass,
-        bumpMap: env.grassBump,
-        bumpScale: 0.08,
-        roughness: 0.78
-      });
-      const plazaMat = new THREE.MeshStandardMaterial({
-        color: "#e6dcc8",
-        map: env.plaza,
-        bumpMap: env.plazaBump,
-        bumpScale: 0.12,
-        roughness: 0.76
-      });
+      const sandMat = this._makeToonMat({
+        color: "#ebd5b0",
+        map: env.sand
+      }, true);
+      const grassMat = this._makeToonMat({
+        color: "#78bd7e",
+        map: env.grass
+      }, true);
+      const plazaMat = this._makeToonMat({
+        color: "#efe1cb",
+        map: env.plaza
+      }, true);
 
       const sandBase = this._createExtrudedLayer(13.5, 0.8, 0.65, 0.25, sandMat);
       sandBase.position.y = 0.55;
@@ -2730,31 +3197,25 @@
     _buildRadiatingBridges() {
       const THREE = window.THREE;
       const env = this._getEnvTextures();
-      const woodCreamMat = new THREE.MeshStandardMaterial({
+      const woodCreamMat = this._makeToonMat({
         color: "#ead4b5",
-        map: env.wood,
-        bumpMap: env.woodBump,
-        bumpScale: 0.08,
-        roughness: 0.74
+        map: env.wood
       });
-      const woodWarmMat = new THREE.MeshStandardMaterial({
+      const woodWarmMat = this._makeToonMat({
         color: "#dfb280",
-        map: env.wood,
-        bumpMap: env.woodBump,
-        bumpScale: 0.08,
-        roughness: 0.76
+        map: env.wood
       });
-      const trimBeamMat = new THREE.MeshStandardMaterial({
+      const trimBeamMat = this._makeToonMat({
         color: "#c27d48",
-        map: env.wood,
-        roughness: 0.78
+        map: env.wood
       });
-      const stonePierMat = new THREE.MeshStandardMaterial({
+      const stonePierMat = this._makeToonMat({
         color: "#ddd0b8",
-        map: env.cliffTile,
-        roughness: 0.78
+        map: env.cliffTile
       });
-      const foamMat = new THREE.MeshBasicMaterial({ color: "#ffffff", transparent: true, opacity: 0.72 });
+      const foamMat = this._disableOutline(
+        new THREE.MeshBasicMaterial({ color: "#ffffff", transparent: true, opacity: 0.62 })
+      );
 
       this.islandsData.forEach((island) => {
         const target = new THREE.Vector3(island.position.x, 0, island.position.z);
@@ -3576,25 +4037,21 @@
       const theme = this._getIslandTheme(island);
 
       // 1F: Coral Reef & Beach
-      const reefMat = new THREE.MeshStandardMaterial({
-        color: island.id === "listening" ? "#3b5998" : "#2b6c8c",
-        roughness: 0.75,
+      const reefMat = this._makeToonMat({
+        color: island.id === "listening" ? "#4778a8" : "#3b89a8",
         transparent: true,
-        opacity: 0.88
-      });
+        opacity: 0.72
+      }, true);
       const reefMesh = this._createExtrudedLayer(r * 1.06, seed, 1.2, 0.35, reefMat);
       reefMesh.position.y = -0.35;
       group.add(reefMesh);
 
       const env = this._getEnvTextures();
-      const sandTint = new THREE.Color(theme.sandColor || island.colors.sand).lerp(new THREE.Color("#e8d3b3"), 0.12);
-      const sandMat = new THREE.MeshStandardMaterial({
+      const sandTint = new THREE.Color(theme.sandColor || island.colors.sand).lerp(new THREE.Color("#f6e7cb"), 0.2);
+      const sandMat = this._makeToonMat({
         color: sandTint,
-        map: env.sand,
-        bumpMap: env.sandBump,
-        bumpScale: 0.09,
-        roughness: 0.84
-      });
+        map: env.sand
+      }, true);
       const sandMesh = this._createExtrudedLayer(r * 0.94, seed, 0.7, 0.25, sandMat);
       sandMesh.position.y = 0.72;
       sandMesh.userData = { islandId: island.id };
@@ -3603,13 +4060,10 @@
 
       // 2F: Theme-customized Grassy / Scenic Plateau
       const grassTint = new THREE.Color(theme.grassColor || island.colors.ground);
-      const grassMat = new THREE.MeshStandardMaterial({
+      const grassMat = this._makeToonMat({
         color: grassTint,
-        map: env.grass,
-        bumpMap: env.grassBump,
-        bumpScale: 0.08,
-        roughness: 0.76
-      });
+        map: env.grass
+      }, true);
       const grassMesh = this._createExtrudedLayer(r * 0.78, seed, 0.75, 0.28, grassMat, env.cliffWallMat);
       grassMesh.position.y = 1.55;
       grassMesh.userData = { islandId: island.id };
@@ -3617,14 +4071,11 @@
       this.clickTargets.push(grassMesh);
 
       // 3F: Elevated Scenic Hill & Waterfall Cliff behind the landmark
-      const hillTint = new THREE.Color(theme.hillColor || "#4e9a59");
-      const hillMat = new THREE.MeshStandardMaterial({
+      const hillTint = new THREE.Color(theme.hillColor || "#589f63");
+      const hillMat = this._makeToonMat({
         color: hillTint,
-        map: env.grass,
-        bumpMap: env.grassBump,
-        bumpScale: 0.08,
-        roughness: 0.76
-      });
+        map: env.grass
+      }, true);
       const hillMesh = this._createExtrudedLayer(r * 0.36, seed + 2.1, 1.35, 0.3, hillMat, env.cliffWallMat);
       hillMesh.position.set(-2.6, 2.95, -2.8);
       hillMesh.userData = { islandId: island.id };
@@ -3696,12 +4147,9 @@
       }
 
       // Wooden Dock on 1F Shoreline
-      const dockMat = new THREE.MeshStandardMaterial({
+      const dockMat = this._makeToonMat({
         color: "#e6b88a",
-        map: env.wood,
-        bumpMap: env.woodBump,
-        bumpScale: 0.08,
-        roughness: 0.82
+        map: env.wood
       });
       const dock = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.18, 2.4), dockMat);
       dock.position.set(0, 0.55, r * 0.98);
@@ -3714,16 +4162,19 @@
       // Glowing Knowledge Treasure Chest on 2F
       this._buildTreasureChest(group, island);
 
-      // SVG Dashed Contour Shoreline Ring
-      const shoreTex = this._createShoreSvgTexture(island.colors.accent || "#8de4ff");
-      const shorePlane = new THREE.Mesh(
-        new THREE.PlaneGeometry(r * 2.65, r * 2.65),
+      // SVG Soft Foam Shoreline Ring
+      const shoreTex = this._createShoreSvgTexture(island.colors.accent || "#e0f7ff");
+      const shorePlaneMat = this._disableOutline(
         new THREE.MeshBasicMaterial({
           map: shoreTex,
           transparent: true,
-          opacity: 0.85,
+          opacity: 0.65,
           depthWrite: false
         })
+      );
+      const shorePlane = new THREE.Mesh(
+        new THREE.PlaneGeometry(r * 2.52, r * 2.52),
+        shorePlaneMat
       );
       shorePlane.rotation.x = -Math.PI / 2;
       shorePlane.position.y = -0.18;
@@ -3738,6 +4189,9 @@
       // Subject-specific Landmark on 3F Hill Terrace + Special FX
       const lmRef = this._buildLandmark(group, island);
       this._buildIslandSpecialFX(group, island, lmRef);
+
+      // Progress-linked island growth decorations (flowers -> lanterns -> festival arch)
+      this._buildIslandGrowthProps(group, island, r, seed);
 
       // Central Lighthouse
       this._buildLighthouse(group, island);
@@ -3807,11 +4261,13 @@
       const wfGroup = new THREE.Group();
       wfGroup.position.set(x + 1.5, 2.0, z + 0.55);
 
-      const streamMat = new THREE.MeshBasicMaterial({
-        color: "#5ce1e6",
-        transparent: true,
-        opacity: 0.82
-      });
+      const streamMat = this._disableOutline(
+        new THREE.MeshBasicMaterial({
+          color: "#7dd3fc",
+          transparent: true,
+          opacity: 0.78
+        })
+      );
       const stream = new THREE.Mesh(new THREE.BoxGeometry(0.85, 1.55, 0.25), streamMat);
       stream.position.y = 0.65;
       stream.rotation.x = 0.25;
@@ -3819,7 +4275,7 @@
 
       const splashPool = new THREE.Mesh(
         new THREE.CylinderGeometry(0.75, 0.85, 0.14, 14),
-        new THREE.MeshBasicMaterial({ color: "#a5f3fc", transparent: true, opacity: 0.78 })
+        this._disableOutline(new THREE.MeshBasicMaterial({ color: "#bae6fd", transparent: true, opacity: 0.72 }))
       );
       splashPool.position.set(0, -0.05, 0.22);
       wfGroup.add(splashPool);
@@ -3828,7 +4284,7 @@
       for (let i = 0; i < 6; i++) {
         const f = new THREE.Mesh(
           new THREE.SphereGeometry(0.12, 8, 8),
-          new THREE.MeshBasicMaterial({ color: "#ffffff", transparent: true, opacity: 0.85 })
+          this._disableOutline(new THREE.MeshBasicMaterial({ color: "#ffffff", transparent: true, opacity: 0.82 }))
         );
         wfGroup.add(f);
         foams.push(f);
@@ -3851,26 +4307,29 @@
       const house = new THREE.Group();
       house.position.set(-9.6, 1.85, 4.4);
       house.rotation.y = 0.45;
-      house.scale.setScalar(1.24);
+
+      const visualSlot = new THREE.Group();
+      const fallbackGroup = new THREE.Group();
+      fallbackGroup.scale.setScalar(1.24);
 
       const wall = new THREE.Mesh(
         new THREE.BoxGeometry(1.25, 0.95, 1.05),
-        new THREE.MeshStandardMaterial({ color: theme.cottageWall, roughness: 0.75 })
+        this._makeToonMat({ color: theme.cottageWall })
       );
       wall.position.y = 0.48;
       wall.castShadow = true;
 
       const roof = new THREE.Mesh(
         new THREE.ConeGeometry(1.08, 0.72, 4),
-        new THREE.MeshStandardMaterial({ color: theme.cottageRoof, roughness: 0.55 })
+        this._makeToonMat({ color: theme.cottageRoof })
       );
       roof.rotation.y = Math.PI / 4;
       roof.position.y = 1.28;
       roof.castShadow = true;
 
       // Glass window that glows warmly at dusk & night!
-      const winColor = island.id === "listening" ? "#00f2fe" : "#bae6fd";
-      const winMat = new THREE.MeshBasicMaterial({ color: winColor });
+      const winColor = island.id === "listening" ? "#7dd3fc" : "#bae6fd";
+      const winMat = this._disableOutline(new THREE.MeshBasicMaterial({ color: winColor }));
       this.nightGlowMaterials.push(winMat);
       const win1 = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.3, 0.08), winMat);
       win1.position.set(-0.28, 0.52, 0.54);
@@ -3879,39 +4338,41 @@
 
       const door = new THREE.Mesh(
         new THREE.BoxGeometry(0.28, 0.46, 0.08),
-        new THREE.MeshStandardMaterial({ color: island.id === "civics" ? "#0f766e" : "#8d5524" })
+        this._makeToonMat({ color: island.id === "civics" ? "#4a9d8f" : "#9c6644" })
       );
       door.position.set(0, 0.24, 0.54);
 
-      house.add(wall, roof, win1, win2, door);
+      fallbackGroup.add(wall, roof, win1, win2, door);
 
       // Unique architectural accent per subject cottage
       if (island.id === "chinese") {
-        const finial = new THREE.Mesh(new THREE.SphereGeometry(0.14, 10, 10), new THREE.MeshStandardMaterial({ color: "#ffd32a", metalness: 0.5 }));
+        const finial = new THREE.Mesh(new THREE.SphereGeometry(0.14, 10, 10), this._makeToonMat({ color: "#ffd32a" }));
         finial.position.y = 1.72;
-        house.add(finial);
+        fallbackGroup.add(finial);
       } else if (island.id === "english") {
-        const bush = new THREE.Mesh(new THREE.SphereGeometry(0.26, 8, 8), new THREE.MeshStandardMaterial({ color: "#ffd32a" }));
+        const bush = new THREE.Mesh(new THREE.SphereGeometry(0.26, 8, 8), this._makeToonMat({ color: "#f7d060" }));
         bush.position.set(0.8, 0.24, 0.4);
-        house.add(bush);
+        fallbackGroup.add(bush);
       } else if (island.id === "listening") {
         const neonRing = new THREE.Mesh(new THREE.TorusGeometry(0.62, 0.05, 8, 20), winMat);
         neonRing.rotation.x = Math.PI / 2;
         neonRing.position.y = 0.98;
-        house.add(neonRing);
+        fallbackGroup.add(neonRing);
       } else if (island.id === "civics") {
         [-0.48, 0.48].forEach((cx) => {
-          const col = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.09, 0.95, 10), new THREE.MeshStandardMaterial({ color: "#ffffff" }));
+          const col = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.09, 0.95, 10), this._makeToonMat({ color: "#ffffff" }));
           col.position.set(cx, 0.48, 0.62);
-          house.add(col);
+          fallbackGroup.add(col);
         });
       } else if (island.id === "history") {
-        const scrollSign = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.09, 0.65, 8), new THREE.MeshStandardMaterial({ color: "#f8c291" }));
+        const scrollSign = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.09, 0.65, 8), this._makeToonMat({ color: "#f8c291" }));
         scrollSign.rotation.z = Math.PI / 2;
         scrollSign.position.set(0, 0.85, 0.56);
-        house.add(scrollSign);
+        fallbackGroup.add(scrollSign);
       }
 
+      visualSlot.add(fallbackGroup);
+      house.add(visualSlot);
       house.traverse((c) => {
         if (c.isMesh) {
           c.userData = { islandId: island.id };
@@ -3919,6 +4380,7 @@
         }
       });
       group.add(house);
+      this.islandCottageSlots.push({ house, slot: visualSlot, island, winMat });
       this._addBoxCollider(island.position.x - 5.6, island.position.z + 2.8, 0.88, 0.78, 0.45, 3.6);
     }
 
@@ -3951,9 +4413,8 @@
     _buildClusteredForest(group, island, r, seed) {
       const THREE = window.THREE;
       const theme = this._getIslandTheme(island);
-      const trunkMat = new THREE.MeshStandardMaterial({
-        color: theme.treeStyle === "crystal" ? "#475569" : "#795548",
-        roughness: 0.85
+      const trunkMat = this._makeToonMat({
+        color: theme.treeStyle === "crystal" ? "#64748b" : "#8d6346"
       });
       const palette = theme.foliageColors || [island.colors.ground];
 
@@ -3963,52 +4424,56 @@
         const tx = Math.cos(ang) * r * distFactor;
         const tz = Math.sin(ang) * r * distFactor;
         if (Math.hypot(tx + 2.2, tz + 2.5) < r * 0.46) return;
+        if (Math.hypot(tx - 8.0, tz + 5.8) < 3.8 || Math.hypot(tx + 9.6, tz - 4.4) < 3.8) return;
         const tree = new THREE.Group();
-        const scale = 0.76 + ((idx + Math.floor(seed)) % 3) * 0.16;
+        const visualSlot = new THREE.Group();
+        const scale = 0.78 + ((idx + Math.floor(seed)) % 3) * 0.16;
         const leafColor = palette[idx % palette.length];
-        const leafMat = new THREE.MeshStandardMaterial({ color: leafColor, roughness: 0.65 });
+        const leafMat = this._makeToonMat({ color: leafColor });
 
         if (theme.treeStyle === "ice_lava" && idx < 2) {
           // Volcanic obsidian boulders on left flank of Geography island
           const rock = new THREE.Mesh(
             new THREE.DodecahedronGeometry(0.68, 0),
-            new THREE.MeshStandardMaterial({ color: "#4a403a", roughness: 0.9 })
+            this._makeToonMat({ color: "#5c4d45" })
           );
           rock.position.y = 0.42;
           rock.rotation.set(idx, idx * 0.6, 0);
           const magmaVein = new THREE.Mesh(
             new THREE.SphereGeometry(0.24, 8, 8),
-            new THREE.MeshBasicMaterial({ color: "#ff6b35" })
+            this._disableOutline(new THREE.MeshBasicMaterial({ color: "#ff784f" }))
           );
           magmaVein.position.y = 0.65;
-          tree.add(rock, magmaVein);
+          visualSlot.add(rock, magmaVein);
         } else if (theme.treeStyle === "cypress") {
           const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.16, 0.55, 8), trunkMat);
           trunk.position.y = 0.28;
           const cone = new THREE.Mesh(new THREE.ConeGeometry(0.55, 1.55, 12), leafMat);
           cone.position.y = 1.15;
           cone.castShadow = true;
-          tree.add(trunk, cone);
+          visualSlot.add(trunk, cone);
+          this.islandTreeSlots.push({ slot: visualSlot, isPine: true, tint: leafColor });
         } else if (theme.treeStyle === "ice_lava") {
           // Layered snowy spruce pines on right side of Geography island
           const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.17, 0.65, 8), trunkMat);
           trunk.position.y = 0.32;
-          const tier1 = new THREE.Mesh(new THREE.ConeGeometry(0.66, 0.85, 10), new THREE.MeshStandardMaterial({ color: "#2c7873" }));
+          const tier1 = new THREE.Mesh(new THREE.ConeGeometry(0.66, 0.85, 10), this._makeToonMat({ color: "#4d9189" }));
           tier1.position.y = 0.92;
-          const tier2 = new THREE.Mesh(new THREE.ConeGeometry(0.48, 0.72, 10), new THREE.MeshStandardMaterial({ color: "#e6fcff" }));
+          const tier2 = new THREE.Mesh(new THREE.ConeGeometry(0.48, 0.72, 10), this._makeToonMat({ color: "#e6f6f8" }));
           tier2.position.y = 1.38;
-          tree.add(trunk, tier1, tier2);
+          visualSlot.add(trunk, tier1, tier2);
+          this.islandTreeSlots.push({ slot: visualSlot, isPine: true, tint: leafColor });
         } else if (theme.treeStyle === "crystal") {
-          // Neon musical crystal trees for Listening island
           const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.14, 0.65, 8), trunkMat);
           trunk.position.y = 0.32;
           const prism = new THREE.Mesh(
             new THREE.OctahedronGeometry(0.62, 0),
-            new THREE.MeshStandardMaterial({ color: leafColor, emissive: leafColor, emissiveIntensity: 0.25, roughness: 0.25 })
+            this._makeToonMat({ color: leafColor, emissive: leafColor, emissiveIntensity: 0.16 })
           );
           prism.position.y = 1.22;
           prism.scale.set(0.95, 1.32, 0.95);
-          tree.add(trunk, prism);
+          visualSlot.add(trunk, prism);
+          this.islandTreeSlots.push({ slot: visualSlot, isPine: false, tint: leafColor });
         } else {
           // Cherry blossom / Honey meadow / Golden ginkgo multi-puff canopies
           const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.2, 0.82, 10), trunkMat);
@@ -4018,14 +4483,16 @@
           crown.scale.set(1.12, 0.92, 1.12);
           crown.rotation.y = idx * 0.9;
           crown.castShadow = true;
-          tree.add(trunk, crown);
+          visualSlot.add(trunk, crown);
           if (theme.treeStyle === "cherry" || theme.treeStyle === "ginkgo") {
             const sub = new THREE.Mesh(new THREE.DodecahedronGeometry(0.45, 1), leafMat);
             sub.position.set(0.38, 1.05, 0.22);
-            tree.add(sub);
+            visualSlot.add(sub);
           }
+          this.islandTreeSlots.push({ slot: visualSlot, isPine: false, tint: leafColor });
         }
 
+        tree.add(visualSlot);
         tree.scale.setScalar(scale);
         tree.position.set(tx, 1.78, tz);
         group.add(tree);
@@ -4039,18 +4506,16 @@
 
       // Textured cobblestone campus promenade walkway
       const env = this._getEnvTextures();
+      const pathRingMat = this._makeToonMat({
+        color: "#ead6bc",
+        map: env.pathStone,
+        transparent: true,
+        opacity: 0.95,
+        side: THREE.DoubleSide
+      }, true);
       const pathRing = new THREE.Mesh(
         new THREE.RingGeometry(pathRadius - 0.65, pathRadius + 0.65, 56),
-        new THREE.MeshStandardMaterial({
-          color: "#f7d4bf",
-          map: env.pathStone,
-          bumpMap: env.plazaBump,
-          bumpScale: 0.08,
-          roughness: 0.85,
-          transparent: true,
-          opacity: 0.92,
-          side: THREE.DoubleSide
-        })
+        pathRingMat
       );
       pathRing.rotation.x = -Math.PI / 2;
       pathRing.position.y = 1.86;
@@ -4596,49 +5061,158 @@
       }
     }
 
+    _buildIslandGrowthProps(group, island, r, seed) {
+      const THREE = window.THREE;
+      const growthRoot = new THREE.Group();
+      const theme = this._getIslandTheme(island);
+
+      // Stage 1 (>=33%): Blooming flower patches & fluttering pastel butterflies
+      const stage1 = new THREE.Group();
+      stage1.visible = false;
+      const stemMat = this._makeToonMat({ color: "#65a35e" });
+      const bloomCols = theme.foliageColors || ["#f9b4c4", "#ffd32a", "#a7f3d0"];
+      for (let i = 0; i < 10; i++) {
+        const ang = (i / 10) * Math.PI * 2 + seed * 0.45;
+        const rad = r * (0.42 + (i % 3) * 0.08);
+        const fx = Math.cos(ang) * rad;
+        const fz = Math.sin(ang) * rad;
+        if (Math.hypot(fx + 2.6, fz + 2.8) < r * 0.42) continue;
+        const fl = new THREE.Group();
+        const st = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.05, 0.24, 6), stemMat);
+        st.position.y = 0.12;
+        const head = new THREE.Mesh(
+          new THREE.SphereGeometry(0.22, 8, 8),
+          this._makeToonMat({ color: bloomCols[i % bloomCols.length] })
+        );
+        head.scale.set(1.25, 0.72, 1.25);
+        head.position.y = 0.28;
+        fl.add(st, head);
+        fl.position.set(fx, 1.84, fz);
+        stage1.add(fl);
+      }
+      const butterflies = [];
+      for (let b = 0; b < 3; b++) {
+        const bf = new THREE.Group();
+        const wingMat = this._makeToonMat({ color: b % 2 === 0 ? "#fde047" : "#f9a8d4", side: THREE.DoubleSide });
+        const wL = new THREE.Mesh(new THREE.PlaneGeometry(0.24, 0.2), wingMat);
+        wL.position.x = -0.12;
+        const wR = new THREE.Mesh(new THREE.PlaneGeometry(0.24, 0.2), wingMat);
+        wR.position.x = 0.12;
+        bf.add(wL, wR);
+        stage1.add(bf);
+        butterflies.push({ bf, wL, wR, ph: b * 2.1 + seed });
+      }
+      this.ambientUpdaters.push((t) => {
+        if (!stage1.visible) return;
+        butterflies.forEach((entry, idx) => {
+          const a = t * 0.85 + entry.ph;
+          entry.bf.position.set(Math.cos(a) * (3.2 + idx * 1.4), 2.75 + Math.sin(t * 2.6 + entry.ph) * 0.35, Math.sin(a) * (3.2 + idx * 1.4));
+          entry.bf.rotation.y = -a;
+          const flap = Math.sin(t * 14 + entry.ph) * 0.75;
+          entry.wL.rotation.y = flap;
+          entry.wR.rotation.y = -flap;
+        });
+      });
+
+      // Stage 2 (>=66%): Warm evening promenade lanterns
+      const stage2 = new THREE.Group();
+      stage2.visible = false;
+      const postMat = this._makeToonMat({ color: "#8d6346" });
+      for (let l = 0; l < 6; l++) {
+        const ang = (l / 6) * Math.PI * 2 + 0.3;
+        const rad = r * 0.78;
+        const lx = Math.cos(ang) * rad;
+        const lz = Math.sin(ang) * rad;
+        const lantern = new THREE.Group();
+        const post = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.06, 1.05, 8), postMat);
+        post.position.y = 0.52;
+        const glowMat = this._disableOutline(new THREE.MeshBasicMaterial({ color: "#fef08a" }));
+        this.nightGlowMaterials.push(glowMat);
+        const orb = new THREE.Mesh(new THREE.SphereGeometry(0.16, 10, 10), glowMat);
+        orb.position.y = 1.1;
+        lantern.add(post, orb);
+        lantern.position.set(lx, 1.84, lz);
+        stage2.add(lantern);
+      }
+
+      // Stage 3 (100% conquered): Hill summit festival pennant arch
+      const stage3 = new THREE.Group();
+      stage3.visible = false;
+      const archPillarMat = this._makeToonMat({ color: island.colors.primary || "#e07a5f" });
+      [-1.35, 1.35].forEach((ax) => {
+        const col = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.11, 2.1, 10), archPillarMat);
+        col.position.set(-2.2 + ax, 4.1, 3.3);
+        stage3.add(col);
+      });
+      const beam = new THREE.Mesh(new THREE.BoxGeometry(3.1, 0.22, 0.2), this._makeToonMat({ color: "#ffd32a" }));
+      beam.position.set(-2.2, 5.15, 3.3);
+      stage3.add(beam);
+      for (let p = 0; p < 5; p++) {
+        const pen = new THREE.Mesh(
+          new THREE.ConeGeometry(0.16, 0.32, 4),
+          this._makeToonMat({ color: p % 2 === 0 ? "#ff8ab4" : "#38bdf8" })
+        );
+        pen.rotation.x = Math.PI;
+        pen.position.set(-3.1 + p * 0.45, 4.92, 3.3);
+        stage3.add(pen);
+      }
+
+      growthRoot.add(stage1, stage2, stage3);
+      group.add(growthRoot);
+      this.islandGrowthGroups.set(island.id, { stage1, stage2, stage3 });
+    }
+
     _buildLighthouse(group, island) {
       const THREE = window.THREE;
       const lhGroup = new THREE.Group();
       lhGroup.position.set(8.0, 1.82, -5.8);
-      lhGroup.scale.setScalar(1.28);
+
+      const visualSlot = new THREE.Group();
+      const fallbackModel = new THREE.Group();
+      fallbackModel.scale.setScalar(1.62);
 
       const body = new THREE.Mesh(
         new THREE.CylinderGeometry(0.32, 0.52, 2.3, 16),
-        new THREE.MeshStandardMaterial({ color: "#f8f9fa", roughness: 0.5 })
+        this._makeToonMat({ color: "#f8f9fa" })
       );
       body.position.y = 1.15;
       body.castShadow = true;
 
       const stripe = new THREE.Mesh(
         new THREE.CylinderGeometry(0.39, 0.45, 0.65, 16),
-        new THREE.MeshStandardMaterial({ color: island.colors.primary, roughness: 0.5 })
+        this._makeToonMat({ color: island.colors.primary })
       );
       stripe.position.y = 1.2;
 
-      const bulb = new THREE.Mesh(
-        new THREE.SphereGeometry(0.32, 14, 14),
-        new THREE.MeshBasicMaterial({ color: "#7f8c8d" })
-      );
-      bulb.position.y = 2.55;
-
       const roof = new THREE.Mesh(
         new THREE.ConeGeometry(0.45, 0.5, 16),
-        new THREE.MeshStandardMaterial({ color: island.colors.primary, roughness: 0.5 })
+        this._makeToonMat({ color: island.colors.primary })
       );
       roof.position.y = 3.0;
 
-      const beamGeo = new THREE.CylinderGeometry(0.18, 1.6, 11, 16, 1, true);
-      const beamMat = new THREE.MeshBasicMaterial({
-        color: "#ffeaa7",
-        transparent: true,
-        opacity: 0,
-        side: THREE.DoubleSide,
-        depthWrite: false
-      });
-      const beam = new THREE.Mesh(beamGeo, beamMat);
-      beam.position.y = 8.0;
+      fallbackModel.add(body, stripe, roof);
+      visualSlot.add(fallbackModel);
 
-      lhGroup.add(body, stripe, bulb, roof, beam);
+      const bulb = new THREE.Mesh(
+        new THREE.SphereGeometry(0.42, 14, 14),
+        this._disableOutline(new THREE.MeshBasicMaterial({ color: "#7f8c8d" }))
+      );
+      bulb.position.y = 4.28;
+
+      const beamGeo = new THREE.CylinderGeometry(0.24, 2.2, 11.5, 16, 1, true);
+      const beamMat = this._disableOutline(
+        new THREE.MeshBasicMaterial({
+          color: "#ffeaa7",
+          transparent: true,
+          opacity: 0,
+          side: THREE.DoubleSide,
+          depthWrite: false
+        })
+      );
+      const beam = new THREE.Mesh(beamGeo, beamMat);
+      beam.position.y = 9.8;
+
+      lhGroup.add(visualSlot, bulb, beam);
       lhGroup.traverse((child) => {
         if (child.isMesh && child !== beam) {
           child.userData = { islandId: island.id };
@@ -4648,6 +5222,7 @@
 
       group.add(lhGroup);
       this.lighthouseMeshes.set(island.id, { beam, bulb });
+      this.islandLighthouseSlots.push({ lhGroup, slot: visualSlot, island });
       this._addCircleCollider(island.position.x + 8.0, island.position.z - 5.8, 0.78, 5.6);
     }
 
@@ -4656,10 +5231,10 @@
       const nodeGroup = new THREE.Group();
       nodeGroup.position.set(x, 1.82, z);
 
-      // Campus courtyard red-brick pad + paw crest
+      // Campus courtyard cream-stone pad + paw crest
       const pad = new THREE.Mesh(
         new THREE.CylinderGeometry(0.86, 0.96, 0.16, 8),
-        new THREE.MeshStandardMaterial({ color: "#e8d5c4", roughness: 0.72 })
+        this._makeToonMat({ color: "#efe2d1" })
       );
       pad.position.y = 0.08;
       pad.userData = { islandId, nodeId: node.id };
@@ -4668,41 +5243,42 @@
 
       const badge = new THREE.Mesh(
         new THREE.CircleGeometry(0.68, 20),
-        new THREE.MeshBasicMaterial({ map: pawTex, transparent: true })
+        this._disableOutline(new THREE.MeshBasicMaterial({ map: pawTex, transparent: true }))
       );
       badge.rotation.x = -Math.PI / 2;
       badge.position.y = 0.17;
       nodeGroup.add(badge);
 
-      // Campus Wooden Study Desk & Chair ("校園生活・自強讀書角")
-      const deskWood = new THREE.MeshStandardMaterial({ color: "#c27d38", roughness: 0.68 });
-      const legMat = new THREE.MeshStandardMaterial({ color: "#475569", roughness: 0.6 });
+      // Desk visual slot (can be upgraded seamlessly to prop_node_desk.glb)
+      const deskSlot = new THREE.Group();
+      const deskWood = this._makeToonMat({ color: "#c98548" });
+      const legMat = this._makeToonMat({ color: "#5c6b7e" });
       const deskTop = new THREE.Mesh(new THREE.BoxGeometry(0.88, 0.08, 0.56), deskWood);
       deskTop.position.set(-0.08, 0.58, 0);
       deskTop.castShadow = true;
       deskTop.userData = { islandId, nodeId: node.id };
-      nodeGroup.add(deskTop);
+      deskSlot.add(deskTop);
       this.clickTargets.push(deskTop);
 
       [[-0.44, -0.22], [0.28, -0.22], [-0.44, 0.22], [0.28, 0.22]].forEach(([lx, lz]) => {
         const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.42, 6), legMat);
         leg.position.set(lx, 0.36, lz);
-        nodeGroup.add(leg);
+        deskSlot.add(leg);
       });
 
-      // Stacked Textbooks on Desk
-      const book1 = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.07, 0.22), new THREE.MeshStandardMaterial({ color: "#ef4444" }));
+      const book1 = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.07, 0.22), this._makeToonMat({ color: "#e07a5f" }));
       book1.position.set(-0.24, 0.66, 0.02);
       book1.rotation.y = 0.18;
-      const book2 = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.06, 0.2), new THREE.MeshStandardMaterial({ color: "#3b82f6" }));
+      const book2 = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.06, 0.2), this._makeToonMat({ color: "#6c8cd5" }));
       book2.position.set(-0.22, 0.72, 0.02);
-      nodeGroup.add(book1, book2);
+      deskSlot.add(book1, book2);
+      nodeGroup.add(deskSlot);
+      this.nodeDeskSlots.push({ slot: deskSlot, islandId, nodeId: node.id });
 
       // Glowing Study Lamp / Achievement Gem above Desk (keeps .crystal ref for progress updates!)
-      const crystalMat = new THREE.MeshStandardMaterial({
+      const crystalMat = this._makeToonMat({
         color: "#7f8fa6",
-        emissive: "#000000",
-        roughness: 0.25
+        emissive: "#000000"
       });
       const lampNeck = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.04, 0.35, 6), legMat);
       lampNeck.position.set(0.18, 0.78, -0.1);
@@ -4716,12 +5292,12 @@
       // Campus Flagpole + Nanshan Panther Crest Topper + School Pennant Flag
       const pole = new THREE.Mesh(
         new THREE.CylinderGeometry(0.045, 0.05, 1.85, 8),
-        new THREE.MeshStandardMaterial({ color: "#f8fafc" })
+        this._makeToonMat({ color: "#f8fafc" })
       );
       pole.position.set(0.55, 1.02, 0.08);
       nodeGroup.add(pole);
 
-      const topperMat = new THREE.MeshStandardMaterial({ color: "#95a5a6", roughness: 0.4 });
+      const topperMat = this._makeToonMat({ color: "#95a5a6" });
       const topperGroup = new THREE.Group();
       topperGroup.position.set(0.55, 2.0, 0.08);
       const tHead = new THREE.Mesh(new THREE.SphereGeometry(0.14, 10, 10), topperMat);
@@ -4734,7 +5310,7 @@
       topperGroup.add(tHead, tEarL, tEarR);
       nodeGroup.add(topperGroup);
 
-      const flagMat = new THREE.MeshStandardMaterial({ color: "#7f8fa6", side: THREE.DoubleSide });
+      const flagMat = this._makeToonMat({ color: "#7f8fa6", side: THREE.DoubleSide });
       const flag = new THREE.Mesh(new THREE.BoxGeometry(0.68, 0.4, 0.05), flagMat);
       flag.position.set(0.88, 0.72, 0.08);
       flag.userData = { islandId, nodeId: node.id };
@@ -5326,12 +5902,14 @@
       this.scene.add(group);
 
       // Ground contact shadow independent of Y jump altitude
-      const shadowMat = new THREE.MeshBasicMaterial({
-        color: "#091322",
-        transparent: true,
-        opacity: 0.42,
-        depthWrite: false
-      });
+      const shadowMat = this._disableOutline(
+        new THREE.MeshBasicMaterial({
+          color: "#091322",
+          transparent: true,
+          opacity: 0.42,
+          depthWrite: false
+        })
+      );
       const shadowMesh = new THREE.Mesh(new THREE.CircleGeometry(0.6, 22), shadowMat);
       shadowMesh.rotation.x = -Math.PI / 2;
       shadowMesh.position.set(ps.x, ps.y + 0.04, ps.z);
@@ -6223,26 +6801,67 @@
       if (this.isWebGL && THREE) {
         if (!this.intelGuideBeam) {
           const beamGroup = new THREE.Group();
-          const colMat = new THREE.MeshBasicMaterial({
-            color: "#fde047",
-            transparent: true,
-            opacity: 0.34,
-            depthWrite: false,
-            side: THREE.DoubleSide
-          });
-          const col = new THREE.Mesh(new THREE.CylinderGeometry(0.45, 0.72, 7.5, 16, 1, true), colMat);
-          col.position.y = 3.5;
-          const ringMat = new THREE.MeshBasicMaterial({
+          const outerRingMat = this._disableOutline(
+            new THREE.MeshBasicMaterial({
+              color: "#fef08a",
+              transparent: true,
+              opacity: 0.42,
+              depthWrite: false,
+              side: THREE.DoubleSide
+            })
+          );
+          const outerRing = new THREE.Mesh(new THREE.RingGeometry(1.1, 1.55, 28), outerRingMat);
+          outerRing.rotation.x = -Math.PI / 2;
+          outerRing.position.y = 0.06;
+
+          const innerRingMat = this._disableOutline(
+            new THREE.MeshBasicMaterial({
+              color: "#ffd32a",
+              transparent: true,
+              opacity: 0.85,
+              depthWrite: false,
+              side: THREE.DoubleSide
+            })
+          );
+          const innerRing = new THREE.Mesh(new THREE.RingGeometry(0.65, 0.95, 28), innerRingMat);
+          innerRing.rotation.x = -Math.PI / 2;
+          innerRing.position.y = 0.09;
+
+          const pointerMat = this._makeToonMat({
             color: "#ffd32a",
-            transparent: true,
-            opacity: 0.88,
-            side: THREE.DoubleSide
+            emissive: "#f59e0b",
+            emissiveIntensity: 0.42
           });
-          const ring = new THREE.Mesh(new THREE.RingGeometry(0.85, 1.25, 24), ringMat);
-          ring.rotation.x = -Math.PI / 2;
-          ring.position.y = 0.08;
-          beamGroup.add(col, ring);
-          beamGroup.userData = { colMat, ringMat, ring };
+          const pointer = new THREE.Mesh(new THREE.ConeGeometry(0.42, 0.95, 6), pointerMat);
+          pointer.rotation.x = Math.PI;
+          pointer.position.y = 2.4;
+
+          const starCount = 6;
+          const spPos = new Float32Array(starCount * 3);
+          for (let i = 0; i < starCount; i++) {
+            const ang = (i / starCount) * Math.PI * 2;
+            spPos[i * 3] = Math.cos(ang) * 0.72;
+            spPos[i * 3 + 1] = 0.35 + (i % 3) * 0.65;
+            spPos[i * 3 + 2] = Math.sin(ang) * 0.72;
+          }
+          const spGeo = new THREE.BufferGeometry();
+          spGeo.setAttribute("position", new THREE.BufferAttribute(spPos, 3));
+          const spMat = this._disableOutline(
+            new THREE.PointsMaterial({
+              color: "#fff8c6",
+              map: this._getSoftGlowTex(),
+              size: 0.45,
+              transparent: true,
+              opacity: 0.9,
+              blending: THREE.AdditiveBlending,
+              alphaTest: 0.01,
+              depthWrite: false
+            })
+          );
+          const sparks = new THREE.Points(spGeo, spMat);
+
+          beamGroup.add(outerRing, innerRing, pointer, sparks);
+          beamGroup.userData = { outerRing, innerRing, pointer, spGeo, starCount };
           this.scene.add(beamGroup);
           this.intelGuideBeam = beamGroup;
         }
@@ -6439,6 +7058,25 @@
       }
     }
 
+    playIslandVictoryOrbit(islandId) {
+      this.triggerCatCelebration(islandId);
+      if (!this.isWebGL) return;
+      const island = this.islandsData.find((i) => i.id === islandId);
+      if (!island) return;
+      this.isTweening = false;
+      this.victoryOrbit = {
+        islandId,
+        cx: island.position.x,
+        cz: island.position.z,
+        elapsed: 0,
+        duration: 3.6,
+        startAng: Math.atan2(this.camera.position.x - island.position.x, this.camera.position.z - island.position.z),
+        radius: 22,
+        height: 15,
+        lastBurst: -1
+      };
+    }
+
     setAtmosphereMode(mode) {
       this.atmosphereMode = mode;
       if (!this.isWebGL) return;
@@ -6447,38 +7085,47 @@
         day: {
           bg: "#7ec9f5",
           fog: "#adddf7",
-          hemiSky: "#d8f0ff",
-          hemiGround: "#3d749c",
-          hemiInt: 0.68,
-          sunColor: "#fff5dc",
-          sunInt: 0.85,
-          ocean: "#8cdcf5",
-          starOpacity: 0.12,
+          hemiSky: "#e4f4ff",
+          hemiGround: "#4f86b0",
+          hemiInt: 0.42,
+          sunColor: "#fff4d9",
+          sunInt: 0.44,
+          rimInt: 0.08,
+          shallow: "#5fd0e8",
+          deep: "#2d8fca",
+          foam: "#ffffff",
+          starOpacity: 0.1,
           rainbow: true,
           winColor: "#bae6fd"
         },
         sunset: {
-          bg: "#2d193c",
-          fog: "#512647",
-          hemiSky: "#ff9f7f",
-          hemiGround: "#281c45",
-          hemiInt: 0.82,
-          sunColor: "#ff9f43",
-          sunInt: 1.25,
-          ocean: "#78a2d4",
+          bg: "#4a2759",
+          fog: "#7a3b5e",
+          hemiSky: "#ffaf87",
+          hemiGround: "#3b234d",
+          hemiInt: 0.36,
+          sunColor: "#ff9e64",
+          sunInt: 0.48,
+          rimInt: 0.10,
+          shallow: "#e59682",
+          deep: "#4d568a",
+          foam: "#ffe8d2",
           starOpacity: 0.45,
           rainbow: false,
           winColor: "#fde047"
         },
         night: {
-          bg: "#040b18",
-          fog: "#07172e",
-          hemiSky: "#487eb0",
-          hemiGround: "#0a192f",
-          hemiInt: 0.65,
-          sunColor: "#a29bfe",
-          sunInt: 0.85,
-          ocean: "#3f70a6",
+          bg: "#050d1e",
+          fog: "#081730",
+          hemiSky: "#335c8a",
+          hemiGround: "#081326",
+          hemiInt: 0.22,
+          sunColor: "#8fa8ff",
+          sunInt: 0.24,
+          rimInt: 0.06,
+          shallow: "#1d4b75",
+          deep: "#091c38",
+          foam: "#7ecbff",
           starOpacity: 0.96,
           rainbow: false,
           winColor: "#fef08a"
@@ -6497,9 +7144,19 @@
         this.sunLight.color.set(p.sunColor);
         this.sunLight.intensity = p.sunInt;
       }
-      if (this.oceanMat) {
-        this.oceanMat.color.set(p.ocean);
+      if (this.rimLight) {
+        this.rimLight.intensity = p.rimInt;
       }
+      if (this.oceanUniforms) {
+        this.oceanUniforms.uShallowColor.value.set(p.shallow);
+        this.oceanUniforms.uDeepColor.value.set(p.deep);
+        this.oceanUniforms.uFoamColor.value.set(p.foam);
+        this.oceanUniforms.uFogColor.value.set(p.fog);
+      }
+      const glbEmissive = this._getAtmoEmissiveIntensity(mode);
+      this.stylizedMaterials.forEach((m) => {
+        if (m && m.emissiveMap) m.emissiveIntensity = glbEmissive;
+      });
       if (this.starField) {
         this.starField.material.opacity = p.starOpacity;
       }
@@ -6508,11 +7165,11 @@
       }
       this.nightGlowMaterials.forEach((m) => m.color.set(p.winColor));
       if (this.hubNightLight) {
-        this.hubNightLight.intensity = mode === "night" ? 1.15 : mode === "sunset" ? 0.55 : 0;
+        this.hubNightLight.intensity = mode === "night" ? 0.55 : mode === "sunset" ? 0.35 : 0;
       }
       if (this.fireflyPoints && this.fireflyMat) {
         this.fireflyPoints.visible = mode !== "day";
-        this.fireflyMat.opacity = mode === "night" ? 0.88 : mode === "sunset" ? 0.35 : 0;
+        this.fireflyMat.opacity = mode === "night" ? 0.92 : mode === "sunset" ? 0.42 : 0;
       }
       if (this.panther) {
         this.panther.spriteMat.map = this._getPantherTexture(
@@ -6622,6 +7279,13 @@
             lh.bulb.material.color.set("#7f8c8d");
             lh.beam.material.opacity = 0;
           }
+        }
+
+        const growth = this.islandGrowthGroups && this.islandGrowthGroups.get(island.id);
+        if (growth) {
+          growth.stage1.visible = avgPct >= 33;
+          growth.stage2.visible = avgPct >= 66;
+          growth.stage3.visible = allConquered;
         }
 
         const labelEl = this.labelEls.get(island.id);
@@ -6950,6 +7614,9 @@
             this._envTex.oceanBump.offset.y = this._envTex.ocean.offset.y * 0.9;
           }
         }
+        if (this.oceanUniforms) {
+          this.oceanUniforms.uTime.value = this.clockTime;
+        }
         this._oceanFrame = (this._oceanFrame || 0) + 1;
         if (this.oceanGeo && this._oceanFrame % 3 === 0) {
           const pos = this.oceanGeo.attributes.position;
@@ -7181,11 +7848,50 @@
           if (this.clockTime > (this.intelGuideUntil || 0)) {
             this.intelGuideBeam.visible = false;
           } else {
-            const pulse = 1 + Math.sin(this.clockTime * 5) * 0.14;
-            this.intelGuideBeam.rotation.y += dt * 1.4;
-            if (this.intelGuideBeam.userData && this.intelGuideBeam.userData.ring) {
-              this.intelGuideBeam.userData.ring.scale.setScalar(pulse);
+            const ud = this.intelGuideBeam.userData || {};
+            const pulse = 1 + Math.sin(this.clockTime * 4.5) * 0.14;
+            if (ud.outerRing) ud.outerRing.scale.setScalar(pulse);
+            if (ud.innerRing) ud.innerRing.scale.setScalar(1 + Math.cos(this.clockTime * 4.5) * 0.1);
+            if (ud.pointer) {
+              ud.pointer.position.y = 2.35 + Math.sin(this.clockTime * 4.2) * 0.28;
+              ud.pointer.rotation.y += dt * 2.1;
             }
+            if (ud.spGeo) {
+              const arr = ud.spGeo.attributes.position.array;
+              for (let s = 0; s < (ud.starCount || 6); s++) {
+                const cyc = (this.clockTime * 0.85 + s * 0.18) % 1;
+                const ang = (s / (ud.starCount || 6)) * Math.PI * 2 + this.clockTime * 0.9;
+                arr[s * 3] = Math.cos(ang) * (0.55 + cyc * 0.35);
+                arr[s * 3 + 1] = 0.2 + cyc * 2.1;
+                arr[s * 3 + 2] = Math.sin(ang) * (0.55 + cyc * 0.35);
+              }
+              ud.spGeo.attributes.position.needsUpdate = true;
+            }
+          }
+        }
+
+        if (this.victoryOrbit && this.controls) {
+          const vo = this.victoryOrbit;
+          vo.elapsed += dt;
+          const prog = Math.min(1, vo.elapsed / vo.duration);
+          const ang = vo.startAng + prog * Math.PI * 2;
+          this.controls.target.lerp(new THREE.Vector3(vo.cx, 2.5, vo.cz), 0.16);
+          this.camera.position.lerp(
+            new THREE.Vector3(vo.cx + Math.sin(ang) * vo.radius, vo.height + Math.sin(prog * Math.PI) * 3.0, vo.cz + Math.cos(ang) * vo.radius),
+            0.16
+          );
+          if (vo.elapsed - vo.lastBurst >= 0.85) {
+            vo.lastBurst = vo.elapsed;
+            this._spawnWorldFX(
+              vo.cx + Math.cos(ang * 2) * 3.2,
+              4.2,
+              vo.cz + Math.sin(ang * 2) * 3.2,
+              22,
+              ["#ffd32a", "#ff8ab4", "#38bdf8", "#34d399"]
+            );
+          }
+          if (prog >= 1) {
+            this.victoryOrbit = null;
           }
         }
 
@@ -7235,7 +7941,7 @@
         if (this.controls) {
           this.controls.update();
         }
-        this.renderer.render(this.scene, this.camera);
+        this._renderScene();
       } else if (this.fallbackCtx) {
         this._updatePanther(dt);
         this._draw2DFallback();
@@ -7762,6 +8468,9 @@
         this.camera.aspect = width / height;
         this.camera.updateProjectionMatrix();
         this.renderer.setSize(width, height);
+        if (this.outlineEffect) {
+          this.outlineEffect.setSize(width, height);
+        }
       } else if (this.fallbackCanvas) {
         this.fallbackCanvas.width = width;
         this.fallbackCanvas.height = height;

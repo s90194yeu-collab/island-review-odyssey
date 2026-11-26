@@ -1585,7 +1585,7 @@ window.ISLAND_DATA = {
       emote: "📖 翻開筆記本・專注閱讀中！",
       durationSec: 6,
       fishReward: 2,
-      targetH: 1.55,
+      targetH: 1.22,
       baseRotY: -Math.PI / 2,
       rotY: 0.45,
       worldPos: { x: -7.2, z: -2.4 }
@@ -1601,7 +1601,7 @@ window.ISLAND_DATA = {
       emote: "☕ 啜飲特調咖啡・神清氣爽！",
       durationSec: 5,
       fishReward: 2,
-      targetH: 2.15,
+      targetH: 1.62,
       baseRotY: -Math.PI / 2,
       rotY: -0.4,
       worldPos: { x: 7.4, z: -1.4 }
@@ -1617,7 +1617,7 @@ window.ISLAND_DATA = {
       emote: "🎣 拋竿等魚中・注意浮標訊號！",
       durationSec: 12,
       fishReward: 3,
-      targetH: 1.45,
+      targetH: 1.25,
       baseRotY: 0,
       rotY: Math.PI / 2,
       worldPos: { x: 12.6, z: -0.4 }
@@ -1633,7 +1633,7 @@ window.ISLAND_DATA = {
       emote: "🏖️ 放空小憩中・充電回復元氣～",
       durationSec: 5,
       fishReward: 1,
-      targetH: 2.15,
+      targetH: 1.55,
       baseRotY: -Math.PI / 2,
       rotY: -0.55,
       worldPos: { x: -4.8, z: 8.6 }
@@ -1649,7 +1649,7 @@ window.ISLAND_DATA = {
       emote: "💪 運動充能中・體力與專注 UP！",
       durationSec: 5,
       fishReward: 2,
-      targetH: 2.05,
+      targetH: 1.65,
       baseRotY: -0.25,
       rotY: 0.35,
       worldPos: { x: 4.8, z: 8.6 }
@@ -1667,7 +1667,7 @@ window.ISLAND_DATA = {
       emote: "📜 古文精讀中・文思泉湧！",
       durationSec: 6,
       fishReward: 2,
-      targetH: 1.55,
+      targetH: 1.22,
       baseRotY: -Math.PI / 2,
       rotY: -0.35,
       localPos: { x: 6.4, z: -0.8 }
@@ -1683,7 +1683,7 @@ window.ISLAND_DATA = {
       emote: "☕ Sip & Study・單字記憶力 +20%！",
       durationSec: 5,
       fishReward: 2,
-      targetH: 2.15,
+      targetH: 1.62,
       baseRotY: -Math.PI / 2,
       rotY: -0.35,
       localPos: { x: 6.4, z: -0.8 }
@@ -1699,7 +1699,7 @@ window.ISLAND_DATA = {
       emote: "🎧 沉浸聽力模式・捕捉每個細節！",
       durationSec: 5,
       fishReward: 2,
-      targetH: 2.15,
+      targetH: 1.55,
       baseRotY: -Math.PI / 2,
       rotY: 0.4,
       localPos: { x: 6.2, z: -1.0 }
@@ -1715,7 +1715,7 @@ window.ISLAND_DATA = {
       emote: "💪 野外考察暖身・滿血出發！",
       durationSec: 5,
       fishReward: 2,
-      targetH: 2.05,
+      targetH: 1.65,
       baseRotY: -0.25,
       rotY: -0.25,
       localPos: { x: 5.8, z: 4.8 }
@@ -1731,7 +1731,7 @@ window.ISLAND_DATA = {
       emote: "🧋 咖啡思辨中・看穿市場失靈！",
       durationSec: 5,
       fishReward: 2,
-      targetH: 2.15,
+      targetH: 1.62,
       baseRotY: -Math.PI / 2,
       rotY: -0.35,
       localPos: { x: 6.4, z: -0.8 }
@@ -1747,7 +1747,7 @@ window.ISLAND_DATA = {
       emote: "🎣 歷史海灣拋竿中・靜候上鉤！",
       durationSec: 12,
       fishReward: 3,
-      targetH: 1.45,
+      targetH: 1.25,
       baseRotY: 0,
       rotY: 0.385,
       localPos: { x: 6.8, z: 16.8 }
