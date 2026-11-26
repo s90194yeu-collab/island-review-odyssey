@@ -316,6 +316,14 @@
       this.encounterMailboxes = [];
       this.seaBuoyGroups = [];
       this.nightGlowMaterials = []; // window & lamp materials that glow at night
+      this.hubNightLight = null;
+      this.fireflyPoints = null;
+      this.fireflyMat = null;
+      this.catSpeech = null;
+      this.catSpeechEl = null;
+      this.intelGuideBeam = null;
+      this.buoyVisited = new Set();
+      this.buoyRoundCount = 0;
       this.rainbowMesh = null;
       this.labelEls = new Map();
       this.clickTargets = [];
@@ -1099,12 +1107,53 @@
         this.nightGlowMaterials.push(bGlow.material);
         buoy.add(bBase, bTop, bGlow);
         buoy.position.set(bx, -0.05, bz);
+        buoy.userData = { buoyIdx: idx, x: bx, z: bz };
+        bGlow.userData = { isBuoy: true, buoyIdx: idx };
+        bBase.userData = { isBuoy: true, buoyIdx: idx };
+        bTop.userData = { isBuoy: true, buoyIdx: idx };
+        this.clickTargets.push(bBase, bTop, bGlow);
         this.scene.add(buoy);
         this.seaBuoyGroups.push(buoy);
         this.ambientUpdaters.push((t) => {
           buoy.position.y = -0.05 + Math.sin(t * 2.5 + idx) * 0.12;
           buoy.rotation.z = Math.sin(t * 2.0 + idx) * 0.1;
         });
+      });
+
+      // 7. Gentle Fireflies & Evening Sea Sparkles (active during Sunset & Night)
+      const ffCount = 60;
+      const ffPos = new Float32Array(ffCount * 3);
+      const ffBaseY = new Float32Array(ffCount);
+      for (let i = 0; i < ffCount; i++) {
+        const ang = Math.random() * Math.PI * 2;
+        const dist = 3 + Math.random() * 34;
+        const y = 1.6 + Math.random() * 4.8;
+        ffPos[i * 3] = Math.cos(ang) * dist;
+        ffPos[i * 3 + 1] = y;
+        ffPos[i * 3 + 2] = Math.sin(ang) * dist;
+        ffBaseY[i] = y;
+      }
+      const ffGeo = new THREE.BufferGeometry();
+      ffGeo.setAttribute("position", new THREE.BufferAttribute(ffPos, 3));
+      const ffMat = new THREE.PointsMaterial({
+        color: "#fef08a",
+        size: 0.44,
+        transparent: true,
+        opacity: 0,
+        depthWrite: false
+      });
+      const ffPoints = new THREE.Points(ffGeo, ffMat);
+      ffPoints.visible = false;
+      this.scene.add(ffPoints);
+      this.fireflyPoints = ffPoints;
+      this.fireflyMat = ffMat;
+      this.ambientUpdaters.push((t) => {
+        if (!ffPoints.visible) return;
+        const arr = ffGeo.attributes.position.array;
+        for (let i = 0; i < ffCount; i++) {
+          arr[i * 3 + 1] = ffBaseY[i] + Math.sin(t * 1.45 + i * 0.7) * 0.42;
+        }
+        ffGeo.attributes.position.needsUpdate = true;
       });
     }
 
@@ -1806,6 +1855,7 @@
         }],
         ["assets/prop_lamp.glb?v=16", 2.18, "height", (base) => {
           if (!this.hubLampGroups) return;
+          const lampGlowColor = this.atmosphereMode === "day" ? "#bae6fd" : this.atmosphereMode === "sunset" ? "#fde047" : "#fef08a";
           this.hubLampGroups.forEach(({ group, rotY }) => {
             this._clearGroupChildren(group);
             const clone = base.clone();
@@ -1816,8 +1866,18 @@
                 c.receiveShadow = true;
               }
             });
-            group.add(clone);
+            const bulbMat = new THREE.MeshBasicMaterial({ color: lampGlowColor });
+            this.nightGlowMaterials.push(bulbMat);
+            const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.15, 10, 10), bulbMat);
+            bulb.position.set(0, 1.82, 0);
+            group.add(clone, bulb);
           });
+          if (!this.hubNightLight && this.hubGroup) {
+            const pLight = new THREE.PointLight("#ffd28a", this.atmosphereMode === "night" ? 1.15 : this.atmosphereMode === "sunset" ? 0.55 : 0, 26);
+            pLight.position.set(0, 4.8, 0.5);
+            this.hubGroup.add(pLight);
+            this.hubNightLight = pLight;
+          }
         }],
         ["assets/prop_mailbox.glb?v=16", 1.12, "height", (base) => {
           if (!this.encounterMailboxes) return;
@@ -1872,11 +1932,35 @@
         }],
         ["assets/prop_buoy.glb?v=16", 1.48, "height", (base) => {
           if (!this.seaBuoyGroups) return;
-          this.seaBuoyGroups.forEach((buoy) => {
+          this.clickTargets = this.clickTargets.filter((t) => !(t.userData && t.userData.isBuoy));
+          const glowCol = this.atmosphereMode === "day" ? "#bae6fd" : this.atmosphereMode === "sunset" ? "#fde047" : "#fef08a";
+          this.seaBuoyGroups.forEach((buoy, idx) => {
             this._clearGroupChildren(buoy);
             const clone = base.clone();
             clone.position.y = -0.24;
-            buoy.add(clone);
+            clone.traverse((c) => {
+              if (c.isMesh) {
+                c.userData = Object.assign({}, c.userData, { isBuoy: true, buoyIdx: idx });
+                this.clickTargets.push(c);
+              }
+            });
+            const bGlowMat = new THREE.MeshBasicMaterial({ color: glowCol });
+            this.nightGlowMaterials.push(bGlowMat);
+            const bGlow = new THREE.Mesh(new THREE.SphereGeometry(0.14, 8, 8), bGlowMat);
+            bGlow.position.set(0, 1.16, 0);
+            bGlow.userData = { isBuoy: true, buoyIdx: idx };
+            this.clickTargets.push(bGlow);
+            const ringMat = new THREE.MeshBasicMaterial({
+              color: this.buoyVisited.has(idx) ? "#34d399" : "#ffd32a",
+              transparent: true,
+              opacity: 0.72,
+              side: THREE.DoubleSide
+            });
+            const pRing = new THREE.Mesh(new THREE.RingGeometry(0.95, 1.16, 20), ringMat);
+            pRing.rotation.x = -Math.PI / 2;
+            pRing.position.y = 0.08;
+            buoy.userData.patrolRingMat = ringMat;
+            buoy.add(clone, bGlow, pRing);
           });
         }]
       ];
@@ -2044,11 +2128,34 @@
 
     _mountCaptainCat(base) {
       if (!this.captainCat || !this.captainCat.group) return;
+      this.clickTargets = this.clickTargets.filter((t) => !(t.userData && t.userData.isCaptain));
       const captainClone = this._cloneSkinnedScene(base);
       captainClone.scale.multiplyScalar(0.78);
+      captainClone.traverse((n) => {
+        if (n.isMesh) {
+          n.userData = Object.assign({}, n.userData, { isCaptain: true });
+          this.clickTargets.push(n);
+        }
+      });
       this._clearGroupChildren(this.captainCat.group);
       this.captainCat.group.add(captainClone);
       this.captainCat.isMofuPirate = true;
+    }
+
+    _mountWalkerCat(base) {
+      if (!this.walkerCat || !this.walkerCat.group) return;
+      this.clickTargets = this.clickTargets.filter((t) => !(t.userData && t.userData.isWalkerCat));
+      const walkerClone = this._cloneSkinnedScene(base);
+      walkerClone.scale.multiplyScalar(0.68);
+      walkerClone.traverse((n) => {
+        if (n.isMesh) {
+          n.userData = Object.assign({}, n.userData, { isWalkerCat: true });
+          this.clickTargets.push(n);
+        }
+      });
+      this._clearGroupChildren(this.walkerCat.group);
+      this.walkerCat.group.add(walkerClone);
+      this.walkerCat.isMofuWalker = true;
     }
 
     _mountSalmonCat(base) {
@@ -2118,7 +2225,7 @@
           { url: "assets/cat_white_3d.glb?v=14", height: 2.18, islands: ["chinese"], scale: 0.86 },
           { url: "assets/cat_calico_3d.glb?v=14", height: 2.18, islands: ["civics"], scale: 0.86 },
           { url: "assets/cat_tuxedo_3d.glb?v=14", height: 2.18, islands: ["english", "listening"], scale: 0.86 },
-          { url: "assets/cat_geo_3d.glb?v=15", height: 2.18, islands: ["geography"], scale: 0.86 },
+          { url: "assets/cat_geo_3d.glb?v=15", height: 2.18, islands: ["geography"], walker: true, scale: 0.86 },
           { url: "assets/cat_pirate_3d.glb?v=14", height: 2.0, captain: true },
           { url: "assets/cat_salmon_3d.glb?v=15", height: 1.9, salmon: true }
         ];
@@ -2127,6 +2234,7 @@
             if (cfg.hub) this._mountHubCat(variantBase, animations);
             if (cfg.captain) this._mountCaptainCat(variantBase);
             if (cfg.salmon) this._mountSalmonCat(variantBase);
+            if (cfg.walker) this._mountWalkerCat(variantBase);
             if (cfg.islands) {
               cfg.islands.forEach((islId) => this._mountIslandCat(islId, variantBase, cfg.scale, animations));
             }
@@ -5956,6 +6064,9 @@
           nextSpot = spot;
         }
       }
+      if (ps.onWater) {
+        this._checkOceanBuoys(ps.x, ps.z);
+      }
 
       if (!nextSpot) {
         let nearIsl = null;
@@ -6000,6 +6111,164 @@
         this.nearIslandId = nextId;
         if (this.callbacks.onNearIsland) {
           this.callbacks.onNearIsland(bannerIsl);
+        }
+      }
+    }
+
+    _spawnWorldFX(wx, wy, wz, count, palette) {
+      if (!this.isWebGL || !this.scene) return;
+      const THREE = window.THREE;
+      for (let i = 0; i < count; i++) {
+        const mat = new THREE.MeshBasicMaterial({
+          color: palette[i % palette.length],
+          transparent: true,
+          opacity: 1
+        });
+        const mesh = new THREE.Mesh(new THREE.SphereGeometry(0.11 + Math.random() * 0.08, 7, 7), mat);
+        mesh.position.set(wx, wy, wz);
+        this.scene.add(mesh);
+        const ang = Math.random() * Math.PI * 2;
+        const spd = 1.4 + Math.random() * 3.2;
+        this.burstParticles.push({
+          mesh,
+          mat,
+          vx: Math.cos(ang) * spd,
+          vy: 2.2 + Math.random() * 3.5,
+          vz: Math.sin(ang) * spd,
+          life: 0.78 + Math.random() * 0.42
+        });
+      }
+    }
+
+    _checkOceanBuoys(px, pz) {
+      if (!this.seaBuoyGroups || !this.seaBuoyGroups.length) return;
+      const total = this.seaBuoyGroups.length;
+      for (let i = 0; i < total; i++) {
+        const buoy = this.seaBuoyGroups[i];
+        const bx = (buoy.userData && buoy.userData.x) || buoy.position.x;
+        const bz = (buoy.userData && buoy.userData.z) || buoy.position.z;
+        if (Math.hypot(px - bx, pz - bz) < 3.1 && !this.buoyVisited.has(i)) {
+          this.buoyVisited.add(i);
+          if (buoy.userData && buoy.userData.patrolRingMat) {
+            buoy.userData.patrolRingMat.color.set("#34d399");
+          }
+          this._spawnWorldFX(bx, 0.85, bz, 16, ["#34d399", "#ffd32a", "#38bdf8"]);
+          const completed = this.buoyVisited.size >= total;
+          if (this.callbacks.onBuoyPatrolProgress) {
+            this.callbacks.onBuoyPatrolProgress(this.buoyVisited.size, total, completed);
+          }
+          if (completed) {
+            this.buoyRoundCount += 1;
+            setTimeout(() => {
+              this.buoyVisited.clear();
+              if (this.seaBuoyGroups) {
+                this.seaBuoyGroups.forEach((b) => {
+                  if (b.userData && b.userData.patrolRingMat) {
+                    b.userData.patrolRingMat.color.set("#ffd32a");
+                  }
+                });
+              }
+            }, 1800);
+          }
+        }
+      }
+    }
+
+    showCatSpeech(targetKey, text, durationSec = 4.6) {
+      if (!text) return;
+      this.catSpeech = {
+        key: targetKey || "hub",
+        text,
+        expiresAt: performance.now() + durationSec * 1000
+      };
+    }
+
+    _getSpeechWorldAnchor(targetKey, outVec) {
+      if (targetKey === "hub") {
+        if (this.hubCatWrap) {
+          outVec.set(this.hubCatWrap.position.x, this.hubCatWrap.position.y + 2.55, this.hubCatWrap.position.z);
+          return true;
+        }
+        outVec.set(-3.8, 4.3, 4.4);
+        return true;
+      }
+      if (targetKey === "captain" && this.boat) {
+        outVec.set(this.boat.position.x, this.boat.position.y + 2.85, this.boat.position.z);
+        return true;
+      }
+      if (targetKey === "salmon" && this.salmonCatGroup) {
+        outVec.set(this.salmonCatGroup.position.x, this.salmonCatGroup.position.y + 1.9, this.salmonCatGroup.position.z);
+        return true;
+      }
+      if (targetKey === "walker" && this.walkerCat && this.walkerCat.group && this.walkerCat.group.visible) {
+        outVec.set(this.walkerCat.group.position.x, this.walkerCat.group.position.y + 2.1, this.walkerCat.group.position.z);
+        return true;
+      }
+      if (targetKey === "panther" && this.pantherState) {
+        outVec.set(this.pantherState.x, this.pantherState.y + 2.9, this.pantherState.z);
+        return true;
+      }
+      const cat = this.islandCats && this.islandCats.get(targetKey);
+      if (cat && cat.group) {
+        outVec.set(cat.group.position.x, cat.group.position.y + 2.55, cat.group.position.z);
+        return true;
+      }
+      return false;
+    }
+
+    focusIntelItem(intelId) {
+      const entry = this.intelMeshes && this.intelMeshes.get(intelId);
+      if (!entry) return;
+      const THREE = window.THREE;
+      if (this.isWebGL && THREE) {
+        if (!this.intelGuideBeam) {
+          const beamGroup = new THREE.Group();
+          const colMat = new THREE.MeshBasicMaterial({
+            color: "#fde047",
+            transparent: true,
+            opacity: 0.34,
+            depthWrite: false,
+            side: THREE.DoubleSide
+          });
+          const col = new THREE.Mesh(new THREE.CylinderGeometry(0.45, 0.72, 7.5, 16, 1, true), colMat);
+          col.position.y = 3.5;
+          const ringMat = new THREE.MeshBasicMaterial({
+            color: "#ffd32a",
+            transparent: true,
+            opacity: 0.88,
+            side: THREE.DoubleSide
+          });
+          const ring = new THREE.Mesh(new THREE.RingGeometry(0.85, 1.25, 24), ringMat);
+          ring.rotation.x = -Math.PI / 2;
+          ring.position.y = 0.08;
+          beamGroup.add(col, ring);
+          beamGroup.userData = { colMat, ringMat, ring };
+          this.scene.add(beamGroup);
+          this.intelGuideBeam = beamGroup;
+        }
+        this.intelGuideBeam.position.set(entry.wx, entry.isOcean ? 0.12 : entry.baseY - 0.85, entry.wz);
+        this.intelGuideBeam.visible = true;
+        this.intelGuideUntil = (this.clockTime || 0) + 10;
+      }
+
+      if (!entry.isOcean && entry.item && entry.item.islandId) {
+        this.flyToIsland(entry.item.islandId);
+        this.cameraMode = "overview";
+        if (this.isWebGL && THREE) {
+          this.controlsTargetPos = new THREE.Vector3(entry.wx, entry.baseY + 0.35, entry.wz);
+          this.cameraTargetPos = new THREE.Vector3(entry.wx + 3.6, entry.baseY + 9.8, entry.wz + 13.0);
+          this.isTweening = true;
+        }
+      } else {
+        this.cameraMode = "overview";
+        this._orbitHoldUntil = 0;
+        this.selectedIslandId = null;
+        if (this.walkerCat) this.walkerCat.group.visible = false;
+        this.refreshAllStates();
+        if (this.isWebGL && THREE) {
+          this.controlsTargetPos = new THREE.Vector3(entry.wx, 0.65, entry.wz);
+          this.cameraTargetPos = new THREE.Vector3(entry.wx + 2.5, 12.2, entry.wz + 15.8);
+          this.isTweening = true;
         }
       }
     }
@@ -6238,6 +6507,13 @@
         this.rainbowMesh.visible = p.rainbow;
       }
       this.nightGlowMaterials.forEach((m) => m.color.set(p.winColor));
+      if (this.hubNightLight) {
+        this.hubNightLight.intensity = mode === "night" ? 1.15 : mode === "sunset" ? 0.55 : 0;
+      }
+      if (this.fireflyPoints && this.fireflyMat) {
+        this.fireflyPoints.visible = mode !== "day";
+        this.fireflyMat.opacity = mode === "night" ? 0.88 : mode === "sunset" ? 0.35 : 0;
+      }
       if (this.panther) {
         this.panther.spriteMat.map = this._getPantherTexture(
           this.pantherState.sex,
@@ -6251,6 +6527,10 @@
     _createFloatingLabels() {
       this.labelsContainer.innerHTML = "";
       this.labelEls.clear();
+      const speechEl = document.createElement("div");
+      speechEl.className = "cat-speech-bubble";
+      this.labelsContainer.appendChild(speechEl);
+      this.catSpeechEl = speechEl;
 
       this.islandsData.forEach((island) => {
         const el = document.createElement("button");
@@ -6497,6 +6777,22 @@
         }
         if (hit && hit.isSalmon) {
           this.salmonRollTimer = 1.8;
+          if (this.callbacks.onPetSalmon) this.callbacks.onPetSalmon();
+          return;
+        }
+        if (hit && hit.isCaptain) {
+          if (this.callbacks.onPetCaptain) this.callbacks.onPetCaptain();
+          return;
+        }
+        if (hit && hit.isWalkerCat) {
+          if (this.callbacks.onPetWalker) this.callbacks.onPetWalker(this.walkerCat ? this.walkerCat.islandId : null);
+          return;
+        }
+        if (hit && hit.isBuoy && typeof hit.buoyIdx === "number") {
+          const b = this.seaBuoyGroups && this.seaBuoyGroups[hit.buoyIdx];
+          if (b && b.userData) {
+            this.walkPantherTo(b.userData.x, b.userData.z);
+          }
           return;
         }
         if (hit && hit.isHub && this.callbacks.onSelectHub) {
@@ -6504,7 +6800,7 @@
             this.hubCatCheerTimer = 2.6;
             this._setCatRigAnim(this.hubCatRig, "cheer");
           }
-          this.callbacks.onSelectHub();
+          this.callbacks.onSelectHub(Boolean(hit.isHubCat));
           return;
         }
         if (hit && hit.isCat && this.callbacks.onPetCat) {
@@ -6593,6 +6889,28 @@
         el.style.opacity = "1";
         el.style.pointerEvents = "auto";
       });
+
+      if (this.catSpeechEl) {
+        const sp = this.catSpeech;
+        if (sp && performance.now() < sp.expiresAt && this._getSpeechWorldAnchor(sp.key, tempVec)) {
+          tempVec.project(this.camera);
+          if (tempVec.z <= 1) {
+            let sx = (tempVec.x * 0.5 + 0.5) * width;
+            let sy = (-tempVec.y * 0.5 + 0.5) * height;
+            sx = Math.min(Math.max(sx, 126), Math.max(width - 126, 126));
+            sy = Math.min(Math.max(sy, 96), Math.max(height - 130, 96));
+            if (this.catSpeechEl.textContent !== sp.text) {
+              this.catSpeechEl.textContent = sp.text;
+            }
+            this.catSpeechEl.style.transform = `translate(-50%, -100%) translate(${sx}px, ${sy}px)`;
+            this.catSpeechEl.classList.add("is-visible");
+          } else {
+            this.catSpeechEl.classList.remove("is-visible");
+          }
+        } else {
+          this.catSpeechEl.classList.remove("is-visible");
+        }
+      }
     }
 
     _spawnBoatWake() {
@@ -6823,6 +7141,7 @@
               this._spawnBoatWake();
             }
             this._checkNearIsland();
+            this._checkOceanBuoys(this.boatCurrent.x, this.boatCurrent.z);
           } else if (this.boatMode === "auto") {
             const dx = this.boatTarget.x - this.boatCurrent.x;
             const dz = this.boatTarget.z - this.boatCurrent.z;
@@ -6857,6 +7176,18 @@
 
         // Controllable Nanshan Panther Physics, Terrain Conformity & Animation
         this._updatePanther(dt);
+
+        if (this.intelGuideBeam && this.intelGuideBeam.visible) {
+          if (this.clockTime > (this.intelGuideUntil || 0)) {
+            this.intelGuideBeam.visible = false;
+          } else {
+            const pulse = 1 + Math.sin(this.clockTime * 5) * 0.14;
+            this.intelGuideBeam.rotation.y += dt * 1.4;
+            if (this.intelGuideBeam.userData && this.intelGuideBeam.userData.ring) {
+              this.intelGuideBeam.userData.ring.scale.setScalar(pulse);
+            }
+          }
+        }
 
         for (let i = this.wakeRings.length - 1; i >= 0; i--) {
           const w = this.wakeRings[i];

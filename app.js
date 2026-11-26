@@ -246,6 +246,7 @@
       backpack: [],
       collectedIntel: [],
       unlockedAchievements: [],
+      wrongBank: [],
       pantherSex: "m",
       gasUrl: (DATA.meta && DATA.meta.defaultGasUrl) || "",
       audio: {
@@ -337,6 +338,20 @@
       }
       if (Array.isArray(parsed.unlockedAchievements)) {
         base.unlockedAchievements = [...new Set(parsed.unlockedAchievements)];
+      }
+      if (Array.isArray(parsed.wrongBank)) {
+        const seenWrong = new Set();
+        base.wrongBank = parsed.wrongBank
+          .filter((item) => {
+            if (!item || typeof item.nodeId !== "string" || typeof item.qIdx !== "number") return false;
+            const found = findNode(item.nodeId);
+            if (!found || !Array.isArray(found.node.quiz) || item.qIdx < 0 || item.qIdx >= found.node.quiz.length) return false;
+            const key = `${item.nodeId}::${item.qIdx}`;
+            if (seenWrong.has(key)) return false;
+            seenWrong.add(key);
+            return true;
+          })
+          .map((item) => ({ nodeId: item.nodeId, qIdx: item.qIdx }));
       }
       if (parsed.pantherSex === "f" || parsed.pantherSex === "m") base.pantherSex = parsed.pantherSex;
       if (typeof parsed.gasUrl === "string" && parsed.gasUrl.trim()) {
@@ -510,15 +525,21 @@
     }
 
     const quotes = island.guardianCat.quotes || [];
+    let spokenQuote = "";
     if (quotes.length > 0) {
       const curIdx = state.catStats.quoteIdx[islandId] || 0;
+      spokenQuote = quotes[curIdx % quotes.length];
       state.catStats.quoteIdx[islandId] = (curIdx + 1) % quotes.length;
     }
 
+    playSfx(useFish ? "catch" : "meow");
     saveState();
     renderGlobalHUD();
     if (sceneManager) {
       sceneManager.triggerCatCelebration(islandId);
+      if (spokenQuote && typeof sceneManager.showCatSpeech === "function") {
+        sceneManager.showCatSpeech(islandId, `${island.guardianCat.emoji || "🐱"} ${island.guardianCat.name}：${spokenQuote}`, 5.2);
+      }
     }
     if (activeIslandId === islandId) {
       renderIslandPanel(island);
@@ -782,6 +803,20 @@
         tone(659.25, 0.15, 0.18, 0.09);
         tone(783.99, 0.3, 0.2, 0.09);
         tone(1046.5, 0.45, 0.38, 0.11);
+      } else if (kind === "meow") {
+        const osc = sfxAudioCtx.createOscillator();
+        const gain = sfxAudioCtx.createGain();
+        osc.type = "triangle";
+        osc.frequency.setValueAtTime(590, now);
+        osc.frequency.exponentialRampToValueAtTime(880, now + 0.08);
+        osc.frequency.exponentialRampToValueAtTime(520, now + 0.24);
+        gain.gain.setValueAtTime(0.001, now);
+        gain.gain.exponentialRampToValueAtTime(0.085, now + 0.03);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.26);
+        osc.connect(gain);
+        gain.connect(sfxAudioCtx.destination);
+        osc.start(now);
+        osc.stop(now + 0.28);
       } else {
         tone(620, 0, 0.06, 0.05);
       }
@@ -895,7 +930,15 @@
             renderIslandPanel(findIsland(activeIslandId), null, true);
             if (sceneManager) sceneManager.triggerCatCelebration(activeIslandId);
           }
-          if (sceneManager) sceneManager.doPantherAction("cheer");
+          if (sceneManager) {
+            sceneManager.doPantherAction("cheer");
+            if (typeof sceneManager._spawnPantherFX === "function") {
+              sceneManager._spawnPantherFX(32, ["#ffd32a", "#ff6b81", "#38bdf8", "#1dd1a1", "#ff9ff3"], 0.65);
+            }
+            if (typeof sceneManager.showCatSpeech === "function") {
+              sceneManager.showCatSpeech("panther", `🎉 專注 ${pomodoroMins} 分鐘完成！+${totalFish} 🐟`, 4.6);
+            }
+          }
           playSfx("complete");
           document.getElementById("focus-break-btn")?.classList.remove("is-hidden");
           showToast(
@@ -1172,6 +1215,13 @@
       const signed = (state.checkinDates || []).includes(today);
       const streak = getStreakDays();
       checkinBtn.textContent = signed ? `✅ 已簽到 (${streak}天)` : `📅 簽到 (${streak}天)`;
+    }
+
+    const wrongBtn = document.getElementById("nav-wrong-btn");
+    if (wrongBtn) {
+      const wCnt = Array.isArray(state.wrongBank) ? state.wrongBank.length : 0;
+      wrongBtn.textContent = `📕 錯題特訓 (${wCnt})`;
+      wrongBtn.classList.toggle("has-wrong-items", wCnt > 0);
     }
 
     updatePomodoroDisplay();
@@ -1650,7 +1700,12 @@
         activeQuizCtx.submitted = true;
         let correctCount = 0;
         found.node.quiz.forEach((qObj, idx) => {
-          if (activeQuizCtx.answers[idx] === qObj.answer) correctCount += 1;
+          if (activeQuizCtx.answers[idx] === qObj.answer) {
+            correctCount += 1;
+            clearWrongQuestion(nodeId, idx);
+          } else {
+            recordWrongQuestion(nodeId, idx);
+          }
         });
         const passed = correctCount === found.node.quiz.length;
         const p = state.nodeProgress[nodeId];
@@ -1658,10 +1713,13 @@
         if (passed) {
           p.quizPassed = true;
           if (p.proficiency === "none") p.proficiency = "ok";
+          playSfx("catch");
           showToast(`🐾 通過「${found.node.code}」據點測驗！獲得 +5 🐟 小魚乾！`);
           if (sceneManager) {
             sceneManager.triggerCatCelebration(found.island.id);
           }
+        } else {
+          showToast("📕 答錯題目已收入「錯題特訓」，可隨時集中複習！");
         }
         saveState();
         renderGlobalHUD();
@@ -1686,6 +1744,210 @@
   function closeQuizModal() {
     document.getElementById("quiz-modal").classList.remove("is-open");
     activeQuizCtx = null;
+  }
+
+  function recordWrongQuestion(nodeId, qIdx) {
+    if (!Array.isArray(state.wrongBank)) state.wrongBank = [];
+    const exists = state.wrongBank.some((it) => it.nodeId === nodeId && it.qIdx === qIdx);
+    if (!exists) {
+      state.wrongBank.push({ nodeId, qIdx });
+    }
+  }
+
+  function clearWrongQuestion(nodeId, qIdx) {
+    if (!Array.isArray(state.wrongBank)) return;
+    state.wrongBank = state.wrongBank.filter((it) => !(it.nodeId === nodeId && it.qIdx === qIdx));
+  }
+
+  function openWrongDrillModal(useChallenge = false) {
+    activeQuizCtx = null;
+    const modal = document.getElementById("quiz-modal");
+    const titleEl = document.getElementById("quiz-modal-title");
+    const bodyEl = document.getElementById("quiz-modal-body");
+    if (!modal || !titleEl || !bodyEl) return;
+
+    const bankEntries = (state.wrongBank || [])
+      .map((entry) => {
+        const found = findNode(entry.nodeId);
+        if (!found || !found.node.quiz || !found.node.quiz[entry.qIdx]) return null;
+        return {
+          nodeId: entry.nodeId,
+          qIdx: entry.qIdx,
+          found,
+          qObj: found.node.quiz[entry.qIdx]
+        };
+      })
+      .filter(Boolean);
+
+    let items = bankEntries.slice(0, 8);
+    let isChallenge = false;
+
+    if (items.length === 0 && useChallenge) {
+      isChallenge = true;
+      const pool = [];
+      DATA.islands.forEach((isl) => {
+        isl.nodes.forEach((n) => {
+          (n.quiz || []).forEach((qObj, qIdx) => {
+            pool.push({ nodeId: n.id, qIdx, found: { island: isl, node: n }, qObj });
+          });
+        });
+      });
+      for (let i = pool.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [pool[i], pool[j]] = [pool[j], pool[i]];
+      }
+      items = pool.slice(0, 3);
+    }
+
+    if (items.length === 0) {
+      titleEl.textContent = "📕 錯題急救包＆弱點特訓";
+      bodyEl.innerHTML = `
+        <div class="quiz-question-card" style="text-align:center;padding:24px 16px;">
+          <div style="font-size:36px;margin-bottom:8px;">✨🎉</div>
+          <div style="font-size:16px;font-weight:900;margin-bottom:6px;">目前錯題本是 0 題！太強了！</div>
+          <div style="font-size:13px;color:var(--text-muted);line-height:1.55;margin-bottom:16px;">
+            平常在各科據點「闖關測驗」或「走路遇點」答錯的題目，都會自動收錄到這裡方便考前集中搶救。
+          </div>
+          <div style="display:flex;flex-wrap:wrap;gap:10px;justify-content:center;">
+            <button type="button" class="primary-btn" id="wrong-challenge-btn">🎲 跨科隨機 3 題保溫挑戰 (+3 🐟)</button>
+            <button type="button" class="secondary-btn" id="wrong-empty-close-btn">關閉</button>
+          </div>
+        </div>
+      `;
+      modal.classList.add("is-open");
+      document.getElementById("wrong-challenge-btn")?.addEventListener("click", () => openWrongDrillModal(true));
+      document.getElementById("wrong-empty-close-btn")?.addEventListener("click", closeQuizModal);
+      return;
+    }
+
+    const drillCtx = {
+      isChallenge,
+      items,
+      answers: {},
+      submitted: false
+    };
+
+    const renderDrillBody = () => {
+      titleEl.textContent = isChallenge
+        ? "🎲 跨科 3 題保溫綜合挑戰"
+        : `📕 錯題急救包特訓（本次 ${items.length} 題 / 總待清 ${(state.wrongBank || []).length} 題）`;
+
+      const qsHtml = drillCtx.items
+        .map((it, idx) => {
+          const picked = drillCtx.answers[idx];
+          const optsHtml = it.qObj.options
+            .map((opt, oIdx) => {
+              let cls = "";
+              if (picked === oIdx && !drillCtx.submitted) cls = "is-selected";
+              if (drillCtx.submitted) {
+                if (oIdx === it.qObj.answer) cls = "is-correct";
+                else if (picked === oIdx && picked !== it.qObj.answer) cls = "is-wrong";
+              }
+              return `<button type="button" class="quiz-opt-btn ${cls}" data-drill-q="${idx}" data-drill-o="${oIdx}" ${drillCtx.submitted ? "disabled" : ""}>
+                ${String.fromCharCode(65 + oIdx)}. ${escapeHtml(opt)}
+              </button>`;
+            })
+            .join("");
+
+          const explainHtml = drillCtx.submitted
+            ? `<div class="quiz-explain"><strong>${picked === it.qObj.answer ? "✅ 訂正成功！" : "💡 解析："}</strong>${escapeHtml(it.qObj.explain)}</div>`
+            : "";
+
+          return `
+            <div class="quiz-question-card">
+              <div class="wrong-quiz-meta">🏝️ ${escapeHtml(it.found.island.subject)} · ${escapeHtml(it.found.node.code)}</div>
+              <div class="quiz-q-title">Q${idx + 1}. ${escapeHtml(it.qObj.q)}</div>
+              <div class="quiz-options">${optsHtml}</div>
+              ${explainHtml}
+            </div>
+          `;
+        })
+        .join("");
+
+      const allAnswered = drillCtx.items.every((_, idx) => drillCtx.answers[idx] !== undefined);
+      let footerHtml = "";
+      if (!drillCtx.submitted) {
+        footerHtml = `
+          <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:12px;">
+            <button type="button" class="secondary-btn" id="drill-cancel-btn">暫時離開</button>
+            <button type="button" class="primary-btn" id="drill-submit-btn" ${allAnswered ? "" : "disabled"}>送出特訓批改</button>
+          </div>
+        `;
+      } else {
+        const rightCnt = drillCtx.items.filter((it, idx) => drillCtx.answers[idx] === it.qObj.answer).length;
+        footerHtml = `
+          <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-top:14px;">
+            <strong>本次答對：${rightCnt} / ${drillCtx.items.length} ${isChallenge ? (rightCnt === drillCtx.items.length ? "🎉 全對挑戰成功！" : "💪 繼續保持手感！") : "（答對題目已移出錯題本）"}</strong>
+            <div style="display:flex;gap:8px;">
+              ${!isChallenge && (state.wrongBank || []).length > 0 ? '<button type="button" class="secondary-btn" id="drill-next-btn">繼續清空剩餘錯題</button>' : ""}
+              <button type="button" class="primary-btn" id="drill-done-btn">完成關閉</button>
+            </div>
+          </div>
+        `;
+      }
+
+      bodyEl.innerHTML = qsHtml + footerHtml;
+
+      bodyEl.querySelectorAll("[data-drill-q]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          if (drillCtx.submitted) return;
+          const qIdx = Number(btn.getAttribute("data-drill-q"));
+          const oIdx = Number(btn.getAttribute("data-drill-o"));
+          drillCtx.answers[qIdx] = oIdx;
+          renderDrillBody();
+        });
+      });
+
+      document.getElementById("drill-cancel-btn")?.addEventListener("click", closeQuizModal);
+      document.getElementById("drill-done-btn")?.addEventListener("click", closeQuizModal);
+      document.getElementById("drill-next-btn")?.addEventListener("click", () => openWrongDrillModal(false));
+
+      document.getElementById("drill-submit-btn")?.addEventListener("click", () => {
+        drillCtx.submitted = true;
+        let fixedCount = 0;
+        drillCtx.items.forEach((it, idx) => {
+          const isRight = drillCtx.answers[idx] === it.qObj.answer;
+          if (isRight) {
+            fixedCount += 1;
+            if (!isChallenge) clearWrongQuestion(it.nodeId, it.qIdx);
+          } else {
+            recordWrongQuestion(it.nodeId, it.qIdx);
+          }
+        });
+
+        let fishEarned = 0;
+        if (isChallenge) {
+          fishEarned = fixedCount === drillCtx.items.length ? 3 : fixedCount > 0 ? 1 : 0;
+        } else {
+          fishEarned = fixedCount + ((state.wrongBank || []).length === 0 && fixedCount > 0 ? 2 : 0);
+        }
+        if (fishEarned > 0) {
+          state.catStats.bonusFish = (state.catStats.bonusFish || 0) + fishEarned;
+        }
+        saveState();
+        renderGlobalHUD();
+        if (fixedCount === drillCtx.items.length) {
+          playSfx("complete");
+          if (sceneManager && sceneManager._spawnPantherFX) {
+            sceneManager._spawnPantherFX(24, ["#ffd32a", "#34d399", "#38bdf8", "#ff9ff3"], 0.55);
+          }
+          showToast(
+            isChallenge
+              ? `🎉 跨科保溫挑戰全對！獲得 +${fishEarned} 🐟！`
+              : (state.wrongBank || []).length === 0
+              ? `🎉 錯題本全部清空！獲得總計 +${fishEarned} 🐟 獎勵！`
+              : `✅ 本輪訂正 ${fixedCount} 題，獲得 +${fishEarned} 🐟！`
+          );
+        } else {
+          playSfx(fixedCount > 0 ? "catch" : "tap");
+          if (fishEarned > 0) showToast(`📘 成功訂正 ${fixedCount} 題！獲得 +${fishEarned} 🐟！`);
+        }
+        renderDrillBody();
+      });
+    };
+
+    modal.classList.add("is-open");
+    renderDrillBody();
   }
 
   /* ==================== 編輯據點標題/說明 ==================== */
@@ -1885,11 +2147,14 @@
         if (picked === qObj.answer) {
           state.catStats.walkCombo = (state.catStats.walkCombo || 0) + 1;
           state.catStats.bonusFish = (state.catStats.bonusFish || 0) + 2;
+          clearWrongQuestion(nodeId, quizIdx);
+          playSfx("catch");
           if (sceneManager) sceneManager.triggerCatCelebration(islandId);
           showToast(`🔥 自強連勝 ${state.catStats.walkCombo}！獲得 +2 🐟 小魚乾！`);
         } else {
           state.catStats.walkCombo = 0;
-          showToast("💡 沒關係！看完解析把觀念記起來就是進步！");
+          recordWrongQuestion(nodeId, quizIdx);
+          showToast("💡 已收錄至「錯題特訓」，看完解析把觀念記起來就是進步！");
         }
         saveState();
         renderGlobalHUD();
@@ -2608,6 +2873,9 @@
               <div style="font-size:12px;color:${got ? "var(--text-main)" : "var(--text-muted)"};line-height:1.5;">
                 ${got ? escapeHtml(it.fact) : `📍 探索線索：前往「${escapeHtml(it.hint)}」附近拾取閃光情報！`}
               </div>
+              <div class="intel-card-actions">
+                <button type="button" class="intel-locate-btn" data-locate-intel="${it.id}">🧭 導航前往</button>
+              </div>
             </div>
           `;
         })
@@ -2704,6 +2972,25 @@
       btn.addEventListener("click", () => {
         activeIntelFilter = btn.getAttribute("data-intel-filter") || "all";
         renderLifeContent();
+      });
+    });
+
+    body.querySelectorAll("[data-locate-intel]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const intelId = btn.getAttribute("data-locate-intel");
+        const item = (DATA.intelItems || []).find((x) => x.id === intelId);
+        closeLifeModal();
+        if (item && item.locationType === "ocean") {
+          closeIslandPanel();
+        } else if (activeIslandId) {
+          collapseIslandPanelTo3D();
+        }
+        if (sceneManager && typeof sceneManager.focusIntelItem === "function") {
+          sceneManager.focusIntelItem(intelId);
+        }
+        if (item) {
+          showToast(`🧭 已鎖定「${item.hint || item.title}」，跟著畫面中的金黃光柱去探索吧！`);
+        }
       });
     });
 
@@ -3700,6 +3987,7 @@
           state.nodePomodoros[n.id] = 0;
         });
       });
+      state.wrongBank = [];
       saveState();
       renderGlobalHUD();
       if (activeIslandId) renderIslandPanel(findIsland(activeIslandId), null, false);
@@ -3900,11 +4188,64 @@
         openWalkEncounter(islandId, nodeId, kind);
       },
       onCollectIntel: (intelId) => collectIntel(intelId),
-      onSelectHub: () => {
+      onSelectHub: (clickedCat) => {
+        if (clickedCat && sceneManager && typeof sceneManager.showCatSpeech === "function") {
+          playSfx("meow");
+          const hubTips = [
+            "🎀 布偶史珂：每天來中央廣場簽到拿連勝小魚乾，段考自強不息！",
+            "🎀 布偶史珂：選單裡的「錯題特訓」可以集中複習曾經答錯的考題喔！",
+            "🎀 布偶史珂：衝浪碰觸海域 4 座浮標，就能完成海上巡航領 +3 🐟！"
+          ];
+          const pick = hubTips[Math.floor(Math.random() * hubTips.length)];
+          sceneManager.showCatSpeech("hub", pick, 4.6);
+        }
         closeScheduleModal();
         closeReportModal();
         closeLifeModal();
         openCheckinModal();
+      },
+      onPetSalmon: () => {
+        playSfx("meow");
+        const salmonTips = [
+          "🍣 櫻鮭貓福：悠哉仰漂複習效率最好～點擊海域漂流瓶也能收集跨科考點！",
+          "🍣 櫻鮭貓福：翻滾一圈送你滿滿好運，段考考卷寫起來順風順水！"
+        ];
+        const tip = salmonTips[Math.floor(Math.random() * salmonTips.length)];
+        if (sceneManager && typeof sceneManager.showCatSpeech === "function") {
+          sceneManager.showCatSpeech("salmon", tip, 4.6);
+        }
+        showToast(tip);
+      },
+      onPetCaptain: () => {
+        playSfx("meow");
+        const capTip = "⚓ 海盜船長貓：開著南山豹在水面衝浪、點亮航道 4 座浮標，我立刻送你 +3 🐟！";
+        if (sceneManager && typeof sceneManager.showCatSpeech === "function") {
+          sceneManager.showCatSpeech("captain", capTip, 4.8);
+        }
+        showToast(capTip);
+      },
+      onPetWalker: () => {
+        playSfx("meow");
+        const walkTip = "🎒 巡邏探險貓：靠近各島信箱或寶箱點「互動」，觸發主動回憶超加分！";
+        if (sceneManager && typeof sceneManager.showCatSpeech === "function") {
+          sceneManager.showCatSpeech("walker", walkTip, 4.6);
+        }
+        showToast(walkTip);
+      },
+      onBuoyPatrolProgress: (count, total, completed) => {
+        playSfx(completed ? "complete" : "splash");
+        if (completed) {
+          state.catStats.bonusFish = (state.catStats.bonusFish || 0) + 3;
+          saveState();
+          renderGlobalHUD();
+          const doneMsg = "⚓ 太厲害了！完成航道 4 座浮標巡航一圈，海盜船長貓贈送 +3 🐟！";
+          if (sceneManager && typeof sceneManager.showCatSpeech === "function") {
+            sceneManager.showCatSpeech("captain", doneMsg, 5.0);
+          }
+          showToast(doneMsg);
+        } else {
+          showToast(`⚓ 海上浮標巡航點亮 (${count}/${total})！再找下一座發光浮標！`);
+        }
       },
       onNearInteractable: (spot) => {
         const interactBtn = document.getElementById("panther-interact-btn");
@@ -3993,6 +4334,14 @@
       closeCheckinModal();
       closeAdminModal();
       openLifeModal("builder");
+    });
+    document.getElementById("nav-wrong-btn")?.addEventListener("click", () => {
+      closeScheduleModal();
+      closeReportModal();
+      closeCheckinModal();
+      closeLifeModal();
+      closeAdminModal();
+      openWrongDrillModal(false);
     });
     document.getElementById("hud-intel-btn")?.addEventListener("click", () => {
       closeScheduleModal();
