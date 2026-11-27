@@ -367,8 +367,8 @@
       this.captainCat = null;
       this.boatMode = "auto"; // auto | free
       this.boatInput = { forward: 0, turn: 0 };
-      this.boatTarget = { x: 16.5, z: 17.5 };
-      this.boatCurrent = { x: 16.5, z: 17.5 };
+      this.boatTarget = { x: 22.0, z: 22.0 };
+      this.boatCurrent = { x: 22.0, z: 22.0 };
       this.boatAngle = -0.6;
 
       // Controllable Q-version Nanshan Panther hero
@@ -386,9 +386,9 @@
       this.pantherState = {
         sex: "m",
         x: 0,
-        y: 1.76,
-        z: 5.8,
-        groundY: 1.76,
+        y: 4.4,
+        z: 7.6,
+        groundY: 4.4,
         onWater: false,
         onBridgeId: null,
         jumpedFromWater: false,
@@ -774,6 +774,9 @@
       tex.wrapS = THREE.RepeatWrapping;
       tex.wrapT = THREE.RepeatWrapping;
       tex.repeat.set(rx, ry);
+      if (this.renderer && this.renderer.capabilities && typeof this.renderer.capabilities.getMaxAnisotropy === "function") {
+        tex.anisotropy = Math.min(8, this.renderer.capabilities.getMaxAnisotropy());
+      }
       return tex;
     }
 
@@ -867,13 +870,13 @@
     _getEnvTextures() {
       if (this._envTex) return this._envTex;
       const env = {
-        sand: this._makeStorybookCanvasTex("sand", 0.22, 0.22),
-        grass: this._makeStorybookCanvasTex("grass", 0.24, 0.24),
-        plaza: this._makeStorybookCanvasTex("plaza", 9.0, 9.0),
-        pathStone: this._makeStorybookCanvasTex("plaza", 11.0, 11.0),
-        wood: this._loadTileTex("assets/tex_wood.jpg?v=7", 1.4, 1.0),
-        cliff: this._makeStorybookCanvasTex("cliff", 0.24, 0.24),
-        cliffTile: this._makeStorybookCanvasTex("cliff", 1.2, 0.8),
+        sand: this._loadTileTex("assets/tex_sand.jpg?v=8", 1.0, 1.0) || this._makeStorybookCanvasTex("sand", 0.22, 0.22),
+        grass: this._loadTileTex("assets/tex_grass.jpg?v=8", 1.0, 1.0) || this._makeStorybookCanvasTex("grass", 0.24, 0.24),
+        plaza: this._loadTileTex("assets/tex_plaza.jpg?v=8", 1.0, 1.0) || this._makeStorybookCanvasTex("plaza", 9.0, 9.0),
+        pathStone: this._loadTileTex("assets/tex_plaza.jpg?v=8", 2.0, 2.0) || this._makeStorybookCanvasTex("plaza", 11.0, 11.0),
+        wood: this._loadTileTex("assets/tex_wood.jpg?v=8", 1.4, 1.0),
+        cliff: this._loadTileTex("assets/tex_cliff.jpg?v=8", 1.0, 1.0) || this._makeStorybookCanvasTex("cliff", 0.24, 0.24),
+        cliffTile: this._loadTileTex("assets/tex_cliff.jpg?v=8", 1.4, 1.0) || this._makeStorybookCanvasTex("cliff", 1.2, 0.8),
       };
       env.cliffWallMat = this._makeToonMat({
         color: "#ead7be",
@@ -908,7 +911,7 @@
 
       this.scene = new THREE.Scene();
       this.scene.background = new THREE.Color("#7ec9f5");
-      this.scene.fog = new THREE.FogExp2("#b8e2f8", 0.0014);
+      this.scene.fog = new THREE.FogExp2("#b8e2f8", 0.0011);
 
       this.camera = new THREE.PerspectiveCamera(56, width / height, 0.35, 920);
       const psInit = this.pantherState;
@@ -964,6 +967,7 @@
       this.scene.add(this.rimLight);
 
       this.colliders = [];
+      this.islandOccupied = new Map();
       this.landmarkGroups = new Map();
       this.campusBoards = new Map();
       this.activityStations = new Map();
@@ -980,12 +984,14 @@
       this._buildClouds();
       this._buildSkyAndOceanLife();
       this._buildCountdownSkyFX();
+      this.islandGrassConfigs = [];
       this._buildCentralHub();
       this.islandsData.forEach((island, idx) => this._buildIsland(island, idx));
       this._buildRadiatingBridges();
       this._buildDecorationsPool();
       this._buildIntelCollectibles((window.ISLAND_DATA && window.ISLAND_DATA.intelItems) || []);
       this._buildLifeActivities((window.ISLAND_DATA && window.ISLAND_DATA.lifeActivities) || []);
+      this._buildAllIslandMeadowGrass();
       this._buildBoat();
       this._buildWalkerCat();
       this._buildPanther();
@@ -1192,7 +1198,7 @@
 
     _buildOcean() {
       const THREE = window.THREE;
-      const oceanGeo = new THREE.PlaneGeometry(520, 520, 48, 48);
+      const oceanGeo = new THREE.PlaneGeometry(760, 760, 56, 56);
       oceanGeo.rotateX(-Math.PI / 2);
 
       const posAttr = oceanGeo.attributes.position;
@@ -1201,19 +1207,24 @@
         this.oceanBaseY.push(posAttr.getY(i));
       }
 
-      const islVecs = [new THREE.Vector3(0, 0, 12.6)];
+      const islVecs = [new THREE.Vector3(0, 0, 16.0)];
       (this.islandsData || []).slice(0, 6).forEach((isl) => {
-        islVecs.push(new THREE.Vector3(isl.position.x, isl.position.z, (isl.radius || 11) * 0.96));
+        islVecs.push(new THREE.Vector3(isl.position.x, isl.position.z, (isl.radius || 26.5) * 0.88));
       });
       while (islVecs.length < 7) islVecs.push(new THREE.Vector3(999, 999, 1));
+      const reefIsl = (this.islandsData || []).find((i) => i.id === "listening");
+      const reefPos = reefIsl ? new THREE.Vector2(reefIsl.position.x, reefIsl.position.z) : new THREE.Vector2(68, -40);
 
       this.oceanUniforms = {
         uTime: { value: 0 },
         uShallowColor: { value: new THREE.Color("#5fd0e8") },
-        uDeepColor: { value: new THREE.Color("#2d8fca") },
+        uDeepColor: { value: new THREE.Color("#257fb8") },
+        uLagoonColor: { value: new THREE.Color("#45ece0") },
         uFoamColor: { value: new THREE.Color("#ffffff") },
         uFogColor: { value: new THREE.Color("#b8e2f8") },
-        uFogDensity: { value: 0.0014 },
+        uFogDensity: { value: 0.0011 },
+        uReefCenter: { value: reefPos },
+        uReefRadius: { value: 40.0 },
         uIslands: { value: islVecs }
       };
 
@@ -1231,28 +1242,64 @@
           "uniform float uTime;",
           "uniform vec3 uShallowColor;",
           "uniform vec3 uDeepColor;",
+          "uniform vec3 uLagoonColor;",
           "uniform vec3 uFoamColor;",
           "uniform vec3 uFogColor;",
           "uniform float uFogDensity;",
+          "uniform vec2 uReefCenter;",
+          "uniform float uReefRadius;",
           "uniform vec3 uIslands[7];",
           "varying vec3 vWorldPos;",
+          "float hash2(vec2 p) {",
+          "  return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);",
+          "}",
+          "float vnoise(vec2 p) {",
+          "  vec2 i = floor(p);",
+          "  vec2 f = fract(p);",
+          "  vec2 u = f * f * (3.0 - 2.0 * f);",
+          "  float a = hash2(i);",
+          "  float b = hash2(i + vec2(1.0, 0.0));",
+          "  float c = hash2(i + vec2(0.0, 1.0));",
+          "  float d = hash2(i + vec2(1.0, 1.0));",
+          "  return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);",
+          "}",
+          "float fbmWater(vec2 p) {",
+          "  float v = 0.0;",
+          "  float a = 0.5;",
+          "  mat2 rot = mat2(0.8, 0.6, -0.6, 0.8);",
+          "  for (int i = 0; i < 3; i++) {",
+          "    v += a * vnoise(p);",
+          "    p = rot * p * 2.03 + vec2(13.1, 17.7);",
+          "    a *= 0.5;",
+          "  }",
+          "  return v;",
+          "}",
           "void main() {",
+          "  vec2 wpUv = vWorldPos.xz * 0.045;",
+          "  float warpOff = fbmWater(wpUv * 0.75 + vec2(uTime * 0.04, uTime * 0.025));",
+          "  float coastWarp = (fbmWater(vWorldPos.xz * 0.08 + vec2(uTime * 0.05, -uTime * 0.04)) - 0.5) * 2.8;",
           "  float minDist = 100.0;",
           "  for (int i = 0; i < 7; i++) {",
-          "    float d = length(vWorldPos.xz - uIslands[i].xy) - uIslands[i].z;",
+          "    float d = length(vWorldPos.xz - uIslands[i].xy) - uIslands[i].z + coastWarp;",
           "    minDist = min(minDist, d);",
           "  }",
-          "  float shallowBlend = smoothstep(0.0, 5.2, max(0.0, minDist));",
+          "  float shallowBlend = smoothstep(0.0, 6.2, max(0.0, minDist));",
           "  vec3 col = mix(uShallowColor, uDeepColor, shallowBlend);",
-          "  float wave1 = sin(vWorldPos.x * 0.34 + uTime * 1.15) * cos(vWorldPos.z * 0.31 - uTime * 0.92);",
-          "  float wave2 = sin((vWorldPos.x + vWorldPos.z) * 0.22 - uTime * 0.8);",
-          "  float crest = smoothstep(0.66, 0.88, wave1 * 0.55 + wave2 * 0.45 + 0.5);",
-          "  col = mix(col, mix(uShallowColor, uFoamColor, 0.45), crest * 0.22);",
-          "  float shorePulse = sin(minDist * 3.8 - uTime * 2.6);",
-          "  float shoreFoam = (1.0 - smoothstep(0.0, 2.3, max(0.0, minDist))) * smoothstep(0.35, 0.78, shorePulse + 0.3);",
-          "  float tightEdge = 1.0 - smoothstep(0.0, 0.75, max(0.0, minDist));",
-          "  col = mix(col, uFoamColor, clamp(max(shoreFoam * 0.55, tightEdge * 0.65), 0.0, 0.85));",
+          "  float reefDist = length(vWorldPos.xz - uReefCenter) + coastWarp * 1.05;",
+          "  float reefLagoon = 1.0 - smoothstep(18.0, uReefRadius, reefDist);",
+          "  col = mix(col, uLagoonColor, reefLagoon * 0.84);",
+          "  float swell = fbmWater(wpUv + vec2(warpOff * 0.85, -warpOff * 0.65) + vec2(uTime * 0.07, -uTime * 0.05));",
+          "  float ripple = fbmWater(vWorldPos.xz * 0.13 + vec2(swell * 1.15, warpOff * 0.9) - vec2(uTime * 0.12, uTime * 0.08));",
           "  float distCam = length(cameraPosition - vWorldPos);",
+          "  float distFade = 1.0 - smoothstep(95.0, 240.0, distCam);",
+          "  col = mix(col, mix(uDeepColor, uShallowColor, 0.55), smoothstep(0.32, 0.74, swell) * 0.42);",
+          "  float crest = smoothstep(0.62, 0.82, ripple) * distFade;",
+          "  col = mix(col, mix(uShallowColor, uFoamColor, 0.50), crest * 0.28);",
+          "  float outerReefFoam = (1.0 - smoothstep(0.0, 2.2, abs(reefDist - (uReefRadius - 2.2)))) * smoothstep(0.25, 0.75, sin(reefDist * 2.2 - uTime * 2.4) * 0.5 + 0.5);",
+          "  float shorePulse = sin(minDist * 3.4 - uTime * 2.4 + (warpOff - 0.5) * 2.6);",
+          "  float shoreFoam = (1.0 - smoothstep(0.0, 2.5, max(0.0, minDist))) * smoothstep(0.32, 0.80, shorePulse + 0.3);",
+          "  float tightEdge = 1.0 - smoothstep(0.0, 0.9, max(0.0, minDist));",
+          "  col = mix(col, uFoamColor, clamp(max(max(shoreFoam * 0.52, tightEdge * 0.55), outerReefFoam * 0.65), 0.0, 0.85));",
           "  float fogFactor = 1.0 - exp(-uFogDensity * uFogDensity * distCam * distCam);",
           "  col = mix(col, uFogColor, clamp(fogFactor, 0.0, 1.0));",
           "  gl_FragColor = vec4(col, 1.0);",
@@ -1268,7 +1315,7 @@
       this.oceanGeo = oceanGeo;
       this.oceanMat = oceanMat;
 
-      const deepGeo = new THREE.PlaneGeometry(560, 560);
+      const deepGeo = new THREE.PlaneGeometry(820, 820);
       deepGeo.rotateX(-Math.PI / 2);
       const deepMat = this._disableOutline(new THREE.MeshBasicMaterial({ color: "#1d6ea0" }));
       const deepMesh = new THREE.Mesh(deepGeo, deepMat);
@@ -1278,12 +1325,18 @@
 
     _buildClouds() {
       const THREE = window.THREE;
-      const cloudMat = new THREE.MeshStandardMaterial({
-        color: "#ffffff",
-        roughness: 0.85,
-        transparent: true,
-        opacity: 0.92
-      });
+      const cloudMat = this._disableOutline(
+        new THREE.MeshToonMaterial({
+          color: "#ffffff",
+          emissive: "#edf6ff",
+          emissiveIntensity: 0.72,
+          transparent: true,
+          opacity: 0.90,
+          gradientMap: this._getToonGradientMap()
+        }),
+        null
+      );
+      this.cloudMat = cloudMat;
 
       const cloudPositions = [
         [-68, 25, -58],
@@ -1320,12 +1373,12 @@
       rainbowColors.forEach((col, i) => {
         const arcMat = this._disableOutline(new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.42 }));
         const arc = new THREE.Mesh(
-          new THREE.TorusGeometry(62 - i * 0.72, 0.38, 8, 56, Math.PI),
+          new THREE.TorusGeometry(84 - i * 0.82, 0.45, 8, 56, Math.PI),
           arcMat
         );
         rainbowGroup.add(arc);
       });
-      rainbowGroup.position.set(0, -1.5, -82);
+      rainbowGroup.position.set(0, -1.5, -110);
       this.scene.add(rainbowGroup);
       this.rainbowMesh = rainbowGroup;
 
@@ -1464,7 +1517,7 @@
 
       this.ambientUpdaters.push((t) => {
         const a = t * 0.11;
-        whaleGroup.position.set(Math.cos(a) * 85, -0.25 + Math.sin(t * 1.5) * 0.18, Math.sin(a) * 85);
+        whaleGroup.position.set(Math.cos(a) * 118, -0.25 + Math.sin(t * 1.5) * 0.18, Math.sin(a) * 118);
         whaleGroup.rotation.y = -a;
         const spoutPulse = Math.max(0, Math.sin(t * 1.4));
         spout.scale.set(0.7 + spoutPulse * 0.5, spoutPulse * 1.25, 0.7 + spoutPulse * 0.5);
@@ -1473,10 +1526,10 @@
 
       // 6. Floating Channel Buoys with blinking light
       const buoySpots = [
-        [-11, -11],
-        [11, -11],
-        [-11, 11],
-        [11, 11]
+        [-19, -19],
+        [19, -19],
+        [-19, 19],
+        [19, 19]
       ];
       buoySpots.forEach(([bx, bz], idx) => {
         const buoy = new THREE.Group();
@@ -1735,12 +1788,12 @@
     }
 
     /* ==================== 碰撞防穿模系統 (Circles & Oriented Boxes) ==================== */
-    _addCircleCollider(x, z, r, maxClimbY = Infinity, groupRef = null) {
-      this.colliders.push({ type: "circle", x, z, r, maxClimbY, groupRef });
+    _addCircleCollider(x, z, r, maxClimbY = Infinity, groupRef = null, tag = null) {
+      this.colliders.push({ type: "circle", x, z, r, maxClimbY, groupRef, tag });
     }
 
-    _addBoxCollider(x, z, halfW, halfD, rotY = 0, maxClimbY = Infinity, groupRef = null) {
-      this.colliders.push({ type: "box", x, z, halfW, halfD, rotY, maxClimbY, groupRef });
+    _addBoxCollider(x, z, halfW, halfD, rotY = 0, maxClimbY = Infinity, groupRef = null, tag = null) {
+      this.colliders.push({ type: "box", x, z, halfW, halfD, rotY, maxClimbY, groupRef, tag });
     }
 
     _resolveCollisions(nx, nz, currentY, pRad = 0.56) {
@@ -1922,6 +1975,25 @@
             this._disableOutline(mat, outlineThickness);
           }
 
+          if (isPantherSlot && n.material && n.material.isMeshToonMaterial && !n.material.userData._rimPatched) {
+            n.material.userData = Object.assign({}, n.material.userData, { _rimPatched: true });
+            n.material.onBeforeCompile = (shader) => {
+              if (shader.fragmentShader && shader.fragmentShader.includes("#include <dithering_fragment>")) {
+                shader.fragmentShader = shader.fragmentShader.replace(
+                  "#include <dithering_fragment>",
+                  [
+                    "vec3 rimN = normalize(normal);",
+                    "vec3 rimV = normalize(vViewPosition);",
+                    "float rimAmt = pow(1.0 - clamp(abs(dot(rimN, rimV)), 0.0, 1.0), 2.4);",
+                    "gl_FragColor.rgb += vec3(0.32, 0.46, 0.68) * rimAmt * 0.65;",
+                    "#include <dithering_fragment>"
+                  ].join("\n")
+                );
+              }
+            };
+            n.material.needsUpdate = true;
+          }
+
           if (isPantherSlot) {
             n.userData = Object.assign({}, n.userData, { isPanther: true });
             this.clickTargets.push(n);
@@ -1955,18 +2027,32 @@
         }
       } else if (slot === "hub" && this.hubGroup) {
         if (this.hubHallGroup) this.hubHallGroup.visible = false;
-        wrapper.position.set(0, 1.76, -5.6);
+        const hubY = this._getHubPlazaY();
+        wrapper.position.set(0, hubY - 0.06, -7.6);
         if (this.customGlbs.hub) this.hubGroup.remove(this.customGlbs.hub);
         this.customGlbs.hub = wrapper;
         this.hubGroup.add(wrapper);
+        const fp = wrapper.userData && wrapper.userData.footprint;
+        if (fp) {
+          this.colliders = this.colliders.filter((c) => c.tag !== "landmark_hub");
+          this._addBoxCollider(0, -7.6, fp.halfW, fp.halfD, 0, hubY + 14.0, null, "landmark_hub");
+        }
       } else if (this.islandGroups.has(slot)) {
         const islGroup = this.islandGroups.get(slot);
         const lm = this.landmarkGroups && this.landmarkGroups.get(slot);
         if (lm) lm.visible = false;
-        wrapper.position.set(0, 2.46, -5.5);
+        const islData = this.islandsData.find((i) => i.id === slot);
+        const prof = this._getIslandProfile(islData);
+        wrapper.position.set(0, prof.sanctY - 0.08, -7.8);
         if (this.customGlbs[slot]) islGroup.remove(this.customGlbs[slot]);
         this.customGlbs[slot] = wrapper;
         islGroup.add(wrapper);
+        const fp = wrapper.userData && wrapper.userData.footprint;
+        if (fp && islData) {
+          const tag = `landmark_${slot}`;
+          this.colliders = this.colliders.filter((c) => c.tag !== tag);
+          this._addBoxCollider(islData.position.x, islData.position.z - 7.8, fp.halfW, fp.halfD, 0, prof.sanctY + 14.0, null, tag);
+        }
       }
     }
 
@@ -2075,9 +2161,9 @@
         if (slot === "panther") {
           scale = 1.85 / Math.max(sz.y, 0.001);
         } else if (slot === "hub") {
-          scale = Math.min(8.6 / Math.max(sz.y, 0.001), 11.4 / Math.max(sz.x, sz.z, 0.001));
+          scale = Math.min(10.0 / Math.max(sz.y, 0.001), 13.4 / Math.max(sz.x, sz.z, 0.001));
         } else {
-          scale = Math.min(9.9 / Math.max(sz.y, 0.001), 11.8 / Math.max(sz.x, sz.z, 0.001));
+          scale = Math.min(11.6 / Math.max(sz.y, 0.001), 13.8 / Math.max(sz.x, sz.z, 0.001));
         }
         model.scale.setScalar(scale);
         box = this._measureModelBox(model);
@@ -2087,6 +2173,18 @@
         this._prepareGltfMeshes(model, slot === "panther", clickTag);
         const wrapper = new THREE.Group();
         wrapper.add(model);
+        const slotRotY = { hub: 0, chinese: 0, english: 0, listening: 0, history: 0, geography: 0, civics: 0 };
+        if (Object.prototype.hasOwnProperty.call(slotRotY, slot)) {
+          wrapper.rotation.y = slotRotY[slot];
+        }
+        if (slot === "hub" || this.islandGroups.has(slot)) {
+          box = this._measureModelBox(wrapper);
+          wrapper.userData.footprint = {
+            halfW: Math.max(2.8, (box.max.x - box.min.x) * 0.50 + 0.18),
+            halfD: Math.max(2.4, (box.max.z - box.min.z) * 0.50 + 0.22),
+            height: box.max.y - box.min.y
+          };
+        }
         if (slot === "panther" && this.panther) {
           const rig = this._bindPantherMixer(model, gltf.animations);
           this._activatePantherRig({ wrapper, rig });
@@ -2106,13 +2204,13 @@
     /* 載入場景建築、6 科島嶼地標與守護貓 3D GLB 模型（限流並行避免行動裝置爆記憶體） */
     _loadSceneDioramas() {
       const queue = [
-        ["hub", "assets/hub_3d.glb?v=6"],
-        ["chinese", "assets/island_chinese.glb?v=6"],
-        ["english", "assets/island_english.glb?v=6"],
-        ["listening", "assets/island_listening.glb?v=6"],
-        ["history", "assets/island_history.glb?v=6"],
-        ["geography", "assets/island_geography.glb?v=6"],
-        ["civics", "assets/island_civics.glb?v=6"],
+        ["hub", "assets/hub_3d.glb?v=7"],
+        ["chinese", "assets/island_chinese.glb?v=7"],
+        ["english", "assets/island_english.glb?v=7"],
+        ["listening", "assets/island_listening.glb?v=7"],
+        ["history", "assets/island_history.glb?v=7"],
+        ["geography", "assets/island_geography.glb?v=7"],
+        ["civics", "assets/island_civics.glb?v=7"],
       ];
       let idx = 0;
       const runNext = () => {
@@ -2685,11 +2783,12 @@
     _mountHubCat(base, animations = null) {
       if (!this.hubGroup) return;
       if (!this.hubCatWrap) {
+        const hubY = this._getHubPlazaY();
         this.hubCatWrap = new THREE.Group();
-        this.hubCatWrap.position.set(-3.8, 1.76, 4.4);
+        this.hubCatWrap.position.set(-5.4, hubY, 5.2);
         this.hubCatWrap.rotation.y = 0.42;
         this.hubGroup.add(this.hubCatWrap);
-        this._addCircleCollider(-3.8, 4.4, 0.72, 3.8);
+        this._addCircleCollider(-5.4, 5.2, 0.72, hubY + 2.8);
       }
       this._clearGroupChildren(this.hubCatWrap);
       this.clickTargets = this.clickTargets.filter((t) => !(t.userData && t.userData.isHubCat));
@@ -3163,59 +3262,553 @@
       return t * t * (3 - 2 * t);
     }
 
+    _getHubPlazaY() {
+      return 4.4;
+    }
+
+    _getIslandProfile(island) {
+      const id = island && island.id ? island.id : "";
+      const MAP = {
+        chinese: {
+          style: "guilin_karst",
+          styleCode: 1.0,
+          platY: 4.8,
+          sanctY: 6.6,
+          spawnZ: 15.6,
+          gateZ: 11.8,
+          outerScale: 1.32,
+          aveMaxZ: 20.0,
+          cliffLight: "#6f867e",
+          cliffDark: "#384a45",
+          stoneLight: "#efe9dc",
+          stoneDark: "#c0b7a5"
+        },
+        english: {
+          style: "japan_shrine",
+          styleCode: 2.0,
+          platY: 4.5,
+          sanctY: 6.4,
+          spawnZ: 17.6,
+          gateZ: 10.2,
+          outerScale: 1.34,
+          aveMaxZ: 22.8,
+          cliffLight: "#7c858e",
+          cliffDark: "#454c54",
+          stoneLight: "#eee6d8",
+          stoneDark: "#bdb5a6"
+        },
+        listening: {
+          style: "barrier_reef",
+          styleCode: 3.0,
+          platY: 4.2,
+          sanctY: 5.6,
+          spawnZ: 15.4,
+          gateZ: 11.4,
+          outerScale: 1.54,
+          aveMaxZ: 19.6,
+          cliffLight: "#ded0b6",
+          cliffDark: "#96856c",
+          stoneLight: "#f7f1e6",
+          stoneDark: "#d2c7b3"
+        },
+        geography: {
+          style: "taiwan_mountain",
+          styleCode: 4.0,
+          platY: 5.4,
+          sanctY: 7.4,
+          spawnZ: 15.8,
+          gateZ: 11.8,
+          outerScale: 1.32,
+          aveMaxZ: 20.0,
+          cliffLight: "#7c848f",
+          cliffDark: "#3b4048",
+          stoneLight: "#e8e0d2",
+          stoneDark: "#b8ab96"
+        },
+        civics: {
+          style: "harbor_citadel",
+          styleCode: 5.0,
+          platY: 5.0,
+          sanctY: 6.6,
+          spawnZ: 18.8,
+          gateZ: 10.6,
+          outerScale: 1.38,
+          aveMaxZ: 22.2,
+          cliffLight: "#d6c8b2",
+          cliffDark: "#8f7d68",
+          stoneLight: "#f2eadc",
+          stoneDark: "#cabca6"
+        },
+        history: {
+          style: "aegean_acropolis",
+          styleCode: 6.0,
+          platY: 5.8,
+          sanctY: 7.6,
+          spawnZ: 17.2,
+          gateZ: 11.8,
+          outerScale: 1.34,
+          aveMaxZ: 23.0,
+          cliffLight: "#f3ece0",
+          cliffDark: "#b2a796",
+          stoneLight: "#f6f0e4",
+          stoneDark: "#d4c8b4"
+        }
+      };
+      return MAP[id] || MAP.chinese;
+    }
+
+    _getIslandBridgeMeta(island) {
+      const prof = this._getIslandProfile(island);
+      const len = Math.hypot(island.position.x, island.position.z) || 1;
+      const dxAxis = island.position.x / len;
+      const dzAxis = island.position.z / len;
+      const startDist = 14.4;
+      const endDist = len - ((island && island.radius) || 26.5) * 0.72;
+      const startY = this._getHubPlazaY() - 0.15;
+      const endY = island && island.id === "english" ? 2.85 : Math.max(3.6, prof.platY - 0.25);
+      return { len, dxAxis, dzAxis, startDist, endDist, startY, endY };
+    }
+
+    _findSafeIslandSpot(island, rawX, rawZ, heightFn, minOffset = -0.55) {
+      const prof = this._getIslandProfile(island);
+      const minH = prof.platY + minOffset;
+      let sx = rawX;
+      let sz = rawZ;
+      let sy = heightFn ? heightFn(sx, sz) : prof.platY;
+      if (sy >= minH) {
+        return { x: sx, y: sy, z: sz };
+      }
+      const aimZ = 2.0;
+      for (let step = 1; step <= 8; step++) {
+        const frac = step / 8;
+        const tx = rawX * (1 - frac * 0.72);
+        const tz = rawZ + (aimZ - rawZ) * (frac * 0.72);
+        const ty = heightFn ? heightFn(tx, tz) : prof.platY;
+        if (ty >= minH) {
+          return { x: tx, y: ty, z: tz };
+        }
+      }
+      return { x: rawX * 0.45, y: prof.platY, z: 2.0 + rawZ * 0.35 };
+    }
+
+    /* 統一空間避讓工具：自動確保高程平坦、避開聖殿/大道/樓梯/跨海橋頭，且不與任何已登記道具互疊穿模 */
+    _findClearIslandSpot(island, rawX, rawZ, propR, heightFn, occupied = [], minOffset = -0.45) {
+      const prof = this._getIslandProfile(island);
+      const r = (island && island.radius) || 26.5;
+      const minH = prof.platY + minOffset;
+      const bm = this._getIslandBridgeMeta(island);
+      const inDirX = -bm.dxAxis;
+      const inDirZ = -bm.dzAxis;
+
+      const isClear = (tx, tz, maxSlope = 0.50, pad = 0.35, minHOverride = null) => {
+        const effMinH = minHOverride !== null ? minHOverride : minH;
+        const ty = heightFn ? heightFn(tx, tz) : prof.platY;
+        if (ty < effMinH) return null;
+        if (heightFn) {
+          const sl = Math.abs(heightFn(tx + 0.55, tz) - heightFn(tx - 0.55, tz))
+            + Math.abs(heightFn(tx, tz + 0.55) - heightFn(tx, tz - 0.55));
+          if (sl > maxSlope) return null;
+        }
+        if (Math.hypot(tx / 10.6, (tz + 7.8) / 8.8) < 1.02) return null;
+        if (Math.abs(tx) < 4.2 && tz > -3.5 && tz < prof.aveMaxZ + 1.5) return null;
+        if (island.id === "civics" && tz > 9.4 && Math.abs(tx) < 10.6) return null;
+        if (island.id === "english" && tz > 9.6 && Math.abs(tx) < 5.0) return null;
+        if (island.id === "listening" && tz > 10.0 && Math.abs(tx) < 5.0) return null;
+        if (island.id === "history" && tz > 10.2 && Math.abs(tx) < 5.5) return null;
+        if (island.id === "geography" && tz < -13.5) return null;
+        const alongIn = tx * inDirX + tz * inDirZ;
+        const perpIn = Math.abs(-tx * inDirZ + tz * inDirX);
+        if (alongIn > r * 0.36 && perpIn < 3.8) return null;
+        for (let i = 0; i < occupied.length; i++) {
+          const o = occupied[i];
+          if (Math.hypot(tx - o.x, tz - o.z) < o.r + propR + pad) return null;
+        }
+        return { x: tx, y: ty, z: tz };
+      };
+
+      const direct = isClear(rawX, rawZ, 0.48, 0.35);
+      if (direct) {
+        occupied.push({ x: direct.x, z: direct.z, r: propR });
+        return direct;
+      }
+
+      for (let step = 1; step <= 64; step++) {
+        const rad = 1.2 + Math.sqrt(step) * 1.6;
+        const ang = step * 2.39996;
+        const tx = rawX + Math.cos(ang) * rad;
+        const tz = rawZ + Math.sin(ang) * rad;
+        if (Math.hypot(tx, tz) > r * 0.88) continue;
+        const hit = isClear(tx, tz, 0.54, 0.28);
+        if (hit) {
+          occupied.push({ x: hit.x, z: hit.z, r: propR });
+          return hit;
+        }
+      }
+
+      const radii = [7.5, 9.5, 11.5, 13.5, 15.5, 17.5, 19.5];
+      let best = null;
+      let bestDist = Infinity;
+      for (let ri = 0; ri < radii.length; ri++) {
+        const rr = radii[ri];
+        for (let step = 0; step < 24; step++) {
+          const ang = (step / 24) * Math.PI * 2;
+          const tx = Math.cos(ang) * rr;
+          const tz = Math.sin(ang) * rr;
+          const hit = isClear(tx, tz, 0.65, 0.20);
+          if (hit) {
+            const d = Math.hypot(tx - rawX, tz - rawZ);
+            if (d < bestDist) {
+              bestDist = d;
+              best = hit;
+            }
+          }
+        }
+      }
+      if (best) {
+        occupied.push({ x: best.x, z: best.z, r: propR });
+        return best;
+      }
+
+      const emerMinH = Math.max(1.2, prof.platY - 1.5);
+      for (let ri = 0; ri < radii.length; ri++) {
+        const rr = radii[ri];
+        for (let step = 0; step < 24; step++) {
+          const ang = (step / 24) * Math.PI * 2;
+          const tx = Math.cos(ang) * rr;
+          const tz = Math.sin(ang) * rr;
+          const hit = isClear(tx, tz, 0.90, 0.05, emerMinH);
+          if (hit) {
+            const d = Math.hypot(tx - rawX, tz - rawZ);
+            if (d < bestDist) {
+              bestDist = d;
+              best = hit;
+            }
+          }
+        }
+      }
+      if (best) {
+        occupied.push({ x: best.x, z: best.z, r: propR });
+        return best;
+      }
+
+      return Object.assign(this._findSafeIslandSpot(island, rawX, rawZ, heightFn, minOffset), { noSpace: true });
+    }
+
     _evalHubHeight(dx, dz) {
+      const hubY = this._getHubPlazaY();
       const d = Math.hypot(dx, dz);
-      if (d <= 8.2) return 1.76;
-      if (d <= 11.2) return 1.76 - this._smoothStep(8.2, 9.1, d) * 0.18;
-      if (d <= 12.7) return 1.58 - this._smoothStep(11.2, 12.7, d) * 0.72;
-      if (d <= 14.3) return 0.86 - this._smoothStep(12.7, 14.3, d) * 1.24;
-      return -0.45;
+      const ang = Math.atan2(dz, dx);
+      const starMod = 1.0 + 0.052 * Math.cos(ang * 8.0);
+      const dn = d / starMod;
+
+      let h = -0.68;
+      if (dn <= 12.6) {
+        h = hubY;
+      } else if (dn <= 14.6) {
+        h = hubY - this._smoothStep(12.6, 14.6, dn) * 0.28;
+      } else if (dn <= 16.2) {
+        h = (hubY - 0.28) - this._smoothStep(14.6, 16.2, dn) * 3.45;
+      } else if (dn <= 18.4) {
+        h = 0.67 - this._smoothStep(16.2, 18.4, dn) * 1.35;
+      }
+
+      // 東側臨海釣魚棧橋緩降石坡 (dx=11.4..15.8 順暢銜接 4.4m -> 0.62m，徹底消除陡梯斷層)
+      if (dx >= 11.2 && dx <= 16.4 && Math.abs(dz + 0.4) <= 2.2) {
+        const rampT = Math.max(0, Math.min(1, (dx - 11.4) / 4.4));
+        const rampH = hubY - rampT * (hubY - 0.62);
+        const sideW = 1.0 - this._smoothStep(1.3, 2.2, Math.abs(dz + 0.4));
+        const startW = this._smoothStep(11.2, 11.8, dx);
+        h = h + (rampH - h) * sideW * startW;
+      }
+
+      // 東側臨海棧橋釣魚台石岬 (配合 act-hub-fishing {x: 16.4, z: -0.4})
+      const fishDist = Math.hypot(dx - 16.0, dz + 0.4);
+      if (fishDist < 3.0) {
+        const blend = 1.0 - this._smoothStep(1.5, 3.0, fishDist);
+        h = h + (0.62 - h) * blend;
+      }
+      return h;
     }
 
     _getIslandAlcoveSlots() {
       return [
-        { x: -4.8, z: 6.8, face: 0.78 },
-        { x: 5.4, z: 8.4, face: -0.78 },
-        { x: -7.8, z: 1.4, face: 1.36 },
-        { x: 10.0, z: -1.6, face: -1.52 },
-        { x: -9.2, z: -5.6, face: 2.05 },
-        { x: 8.6, z: 10.4, face: -0.65 }
+        { x: -7.8, z: 9.2, face: 0.78 },
+        { x: 8.2, z: 10.6, face: -0.78 },
+        { x: -11.6, z: 2.2, face: 1.36 },
+        { x: 12.6, z: -1.6, face: -1.52 },
+        { x: -12.2, z: -7.2, face: 2.05 },
+        { x: 11.8, z: 11.6, face: -0.65 }
       ];
     }
 
-    _evalIslandHeight(island, dx, dz, seed) {
-      const r = (island && island.radius) || 20;
-      const ang = Math.atan2(dz, dx);
-      const coastMod = 1.0 + 0.045 * Math.sin(ang * 3 + seed) + 0.025 * Math.cos(ang * 5 - seed * 1.4);
-      const coastR = r * coastMod;
-      const dist = Math.hypot(dx, dz);
-      const platEnd = coastR * 0.77;
-      const midEnd = coastR * 0.90;
-      const beachEnd = coastR * 1.05;
+    _resolveIslandAlcoves(island, heightFn, occupied = null) {
+      const raw = this._getIslandAlcoveSlots();
+      const prof = this._getIslandProfile(island);
+      const count = Math.min(island && island.nodes ? island.nodes.length : 4, raw.length);
+      const out = [];
+      for (let i = 0; i < count; i++) {
+        const slot = raw[i];
+        const safe = occupied
+          ? this._findClearIslandSpot(island, slot.x, slot.z, 2.35, heightFn, occupied, -0.45)
+          : this._findSafeIslandSpot(island, slot.x, slot.z, heightFn, -0.45);
+        out.push({ x: safe.x, y: Math.max(prof.platY - 0.4, safe.y), z: safe.z, face: slot.face });
+      }
+      return out;
+    }
 
-      let baseH = -0.46;
-      if (dist <= platEnd) {
-        baseH = 1.84;
-        const aveClear = this._smoothStep(2.6, 4.8, Math.abs(dx));
-        const edgeFade = 1.0 - this._smoothStep(platEnd * 0.65, platEnd * 0.95, dist);
-        const sanctClear = this._smoothStep(0.95, 1.35, Math.hypot(dx / 7.8, (dz + 5.5) / 6.5));
-        baseH += 0.1 * Math.sin(dx * 0.25 + seed) * Math.cos(dz * 0.25 - seed * 0.6) * aveClear * edgeFade * sanctClear;
-      } else if (dist <= midEnd) {
-        baseH = 1.84 - this._smoothStep(platEnd, midEnd, dist) * 0.90;
-      } else if (dist <= beachEnd) {
-        baseH = 0.94 - this._smoothStep(midEnd, beachEnd, dist) * 1.38;
+    _evalIslandHeight(island, dx, dz, seed) {
+      const prof = this._getIslandProfile(island);
+      const r = (island && island.radius) || 26.5;
+      const platY = prof.platY;
+      const sanctY = prof.sanctY;
+      const ang = Math.atan2(dz, dx);
+      const dist = Math.hypot(dx, dz);
+
+      // 各島專屬海岸線形態、山脈稜線與斷崖落差（外圍水域統一深潛至 -1.15m 確保海面與島體明確分離）
+      let baseH = -1.15;
+      const aveClear = this._smoothStep(3.2, 5.6, Math.abs(dx));
+      const sanctClear = this._smoothStep(0.95, 1.35, Math.hypot(dx / 10.2, (dz + 7.8) / 8.4));
+
+      if (prof.style === "taiwan_mountain") {
+        // 台灣高山縱谷・清水斷崖：狹長傾斜紡錘山脊＋極陡東岸斷崖＋後方 16m 玉山主峰群山
+        const rotX = dx * 0.965 - dz * 0.26;
+        const rotZ = dx * 0.26 + dz * 0.965;
+        const coastMod = 1.0 + 0.08 * Math.sin(ang * 3 + seed) + 0.045 * Math.cos(ang * 5 - 0.7);
+        const u = Math.hypot(rotX / (r * 0.78), rotZ / (r * 1.18)) / coastMod;
+        if (u <= 0.78) {
+          baseH = platY;
+          const edgeFade = 1.0 - this._smoothStep(0.55, 0.78, u);
+          baseH += 0.22 * Math.sin(dx * 0.20 + seed) * Math.cos(dz * 0.19) * aveClear * edgeFade * sanctClear;
+        } else if (u <= 0.88) {
+          baseH = platY - this._smoothStep(0.78, 0.88, u) * (platY + 1.15);
+        }
+        // 中央大道南端保留寬敞站立起點
+        if (Math.abs(dx) <= 3.6 && dz >= 5.0 && dz <= 17.6) {
+          const wB = 1.0 - this._smoothStep(2.6, 3.6, Math.abs(dx));
+          baseH = Math.max(baseH, -1.15 + (platY + 1.15) * wB);
+        }
+        // 高聳中央山脈主峰（閃開東北跨海橋頭）
+        const bridgeAvoid = this._smoothStep(5.5, 11.0, Math.hypot(dx - 16.4, dz + 9.8));
+        const mtnMask = (1.0 - this._smoothStep(0.66, 0.82, u)) * this._smoothStep(0.96, 1.36, Math.hypot(dx / 10.6, (dz + 7.6) / 8.8)) * bridgeAvoid;
+        if (mtnMask > 0.01) {
+          const pk1 = 9.0 * Math.exp(-((dx + 9.6) * (dx + 9.6) + (dz + 18.8) * (dz + 18.8)) / 56.0);
+          const pk2 = 11.4 * Math.exp(-((dx - 0.2) * (dx - 0.2) + (dz + 22.0) * (dz + 22.0)) / 74.0);
+          const pk3 = 8.4 * Math.exp(-((dx - 10.2) * (dx - 10.2) + (dz + 18.2) * (dz + 18.2)) / 52.0);
+          const pk4 = 4.6 * Math.exp(-((dx + 14.2) * (dx + 14.2) + (dz + 7.4) * (dz + 7.4)) / 36.0);
+          const crag = 0.85 * Math.sin(dx * 0.56) * Math.cos(dz * 0.54) * this._smoothStep(2.0, 7.0, pk1 + pk2 + pk3);
+          baseH = Math.max(baseH, platY + (pk1 + pk2 + pk3 + pk4 + Math.max(0, crag)) * mtnMask);
+        }
+      } else if (prof.style === "barrier_reef") {
+        // 澳洲大堡礁・彎月珊瑚主島＋兩側直落蒂芬妮藍內灣＋4座獨立衛星珊瑚小礁＋西南棧橋砂堤
+        const coastMod = 1.0 + 0.06 * Math.sin(ang * 3 + seed) + 0.04 * Math.cos(ang * 4 - 0.5);
+        const u = Math.hypot(dx / (r * 0.82), (dz + 3.0) / (r * 0.76)) / coastMod;
+        if (u <= 0.72) {
+          baseH = platY;
+        } else if (u <= 0.83) {
+          baseH = platY - this._smoothStep(0.72, 0.83, u) * (platY + 1.15);
+        }
+        // 左右雙灣雕刻形成新月形珊瑚礁，中軸保留開闊珊瑚長堤通道直視兩側瀉湖海面
+        const bayE = Math.hypot(dx - 13.2, dz - 11.6);
+        if (bayE < 8.2) {
+          const be = 1.0 - this._smoothStep(4.2, 8.2, bayE);
+          baseH = baseH + (-1.15 - baseH) * be;
+        }
+        const bayW = Math.hypot(dx + 12.6, dz - 14.4);
+        if (bayW < 6.6) {
+          const bw = 1.0 - this._smoothStep(3.4, 6.6, bayW);
+          baseH = baseH + (-1.15 - baseH) * bw;
+        }
+        if (Math.abs(dx) <= 3.8 && dz >= 4.0 && dz <= 17.0) {
+          const pierW = 1.0 - this._smoothStep(2.8, 3.8, Math.abs(dx));
+          const endW = 1.0 - this._smoothStep(15.6, 17.2, dz);
+          baseH = Math.max(baseH, -1.15 + (platY + 1.15) * pierW * endW);
+        }
+        // 4 座外海完全分離的衛星珊瑚小島
+        const islets = [
+          [-22.2, 15.2, 5.4, 2.8],
+          [22.6, 12.6, 5.0, 2.6],
+          [-23.8, -11.6, 5.6, 3.2],
+          [23.0, -13.0, 5.2, 2.9]
+        ];
+        islets.forEach(([ix, iz, ir, ih]) => {
+          const idst = Math.hypot(dx - ix, dz - iz);
+          if (idst < ir + 1.4) {
+            const ihVal = idst <= ir * 0.62
+              ? ih
+              : idst <= ir * 0.96
+              ? ih - this._smoothStep(ir * 0.62, ir * 0.96, idst) * (ih - 0.15)
+              : 0.15 - this._smoothStep(ir * 0.96, ir + 1.4, idst) * 1.3;
+            baseH = Math.max(baseH, ihVal);
+          }
+        });
+        // 西南木棧橋連結主島 (-13.2, 8.2) -> 衛星珊瑚島 (-21.8, 14.8)
+        const bDirX = -0.793;
+        const bDirZ = 0.609;
+        const relX = dx + 12.8;
+        const relZ = dz - 8.0;
+        const alongB = relX * bDirX + relZ * bDirZ;
+        const perpB = Math.abs(-relX * bDirZ + relZ * bDirX);
+        if (alongB >= -1.2 && alongB <= 11.4 && perpB <= 2.1) {
+          const bt = Math.max(0, Math.min(1, alongB / 4.2));
+          const bwH = 4.2 - bt * (4.2 - 0.72);
+          const pBlend = 1.0 - this._smoothStep(1.3, 2.1, perpB);
+          baseH = Math.max(baseH, -1.15 + (bwH + 1.15) * pBlend);
+        }
+      } else if (prof.style === "japan_shrine") {
+        // 日本瀨戶內／江之島多層山岬：狹窄海崖山台(4.5m -> 2.8m -> 0.9m沙灣) ＋ 千本鳥居階梯 ＋ 後山嵐稜
+        const coastMod = 1.0 + 0.055 * Math.sin(ang * 3 + seed) + 0.03 * Math.cos(ang * 5);
+        const u = Math.hypot(dx / (r * 0.84), (dz + 2.0) / (r * 1.04)) / coastMod;
+        if (u <= 0.77) {
+          baseH = platY;
+        } else if (u <= 0.87) {
+          baseH = platY - this._smoothStep(0.77, 0.87, u) * (platY + 1.15);
+        }
+        // 後山蒼翠神社山嶺 (dz < -14.2)
+        const mtnMask = (1.0 - this._smoothStep(0.66, 0.83, u)) * this._smoothStep(1.0, 1.4, Math.hypot(dx / 10.6, (dz + 7.6) / 8.8));
+        if (mtnMask > 0.01) {
+          const hillBack = 5.8 * Math.exp(-((dx * dx) * 0.65 + (dz + 20.8) * (dz + 20.8)) / 62.0);
+          baseH = Math.max(baseH, platY + hillBack * mtnMask);
+        }
+        // 前低後高階梯山城：下層 2.8m 石造港台 + 南端海灣沙灘 (dz 20.5..27.4 -> -1.15)
+        const inFrontCorridor = 1.0 - this._smoothStep(9.0, 11.4, Math.abs(dx));
+        if (dz > 10.6 && inFrontCorridor > 0.01) {
+          let frontTarget = platY;
+          if (dz <= 16.0) {
+            const stepT = Math.max(0, Math.min(1, (dz - 10.6) / 5.4));
+            frontTarget = platY - stepT * (platY - 2.8);
+          } else if (dz <= 20.5) {
+            frontTarget = 2.8;
+          } else if (dz <= 27.4) {
+            const beachT = Math.max(0, Math.min(1, (dz - 20.5) / 4.2));
+            const dropSurf = this._smoothStep(24.0, 27.4, dz);
+            frontTarget = 2.8 - beachT * 1.9 - dropSurf * 2.05;
+          } else {
+            frontTarget = -1.15;
+          }
+          baseH = baseH + (frontTarget - baseH) * inFrontCorridor;
+        }
+      } else if (prof.style === "guilin_karst") {
+        // 桂林山水峰林・新月半島：深切東側月牙碧灣 (-1.15m) ＋ 4.8m 垂直碧岩斷崖 ＋ 後方峰林基座
+        const coastMod = 1.0 + 0.07 * Math.sin(ang * 3 + seed) + 0.04 * Math.cos(ang * 5);
+        const u = Math.hypot((dx + 1.4) / (r * 0.88), dz / (r * 1.02)) / coastMod;
+        if (u <= 0.79) {
+          baseH = platY;
+        } else if (u <= 0.88) {
+          baseH = platY - this._smoothStep(0.79, 0.88, u) * (platY + 1.15);
+        }
+        // 中軸南端確保完整著陸大道
+        if (Math.abs(dx) <= 3.8 && dz >= 5.0 && dz <= 17.6) {
+          const wB = 1.0 - this._smoothStep(2.8, 3.8, Math.abs(dx));
+          baseH = Math.max(baseH, -1.15 + (platY + 1.15) * wB);
+        }
+        // 深切東側月牙碧水海灣 (16.6, 1.6, r=8.6)
+        const coveD = Math.hypot(dx - 16.6, dz - 1.6);
+        if (coveD < 8.6) {
+          const cb = 1.0 - this._smoothStep(4.4, 8.6, coveD);
+          baseH = baseH + (-1.15 - baseH) * cb;
+        }
+        const ridgeM = (1.0 - this._smoothStep(0.68, 0.84, u)) * this._smoothStep(1.0, 1.38, Math.hypot(dx / 10.6, (dz + 7.6) / 8.8));
+        if (ridgeM > 0.01) {
+          const karstBase = 4.5 * Math.exp(-((dx + 8.6) * (dx + 8.6) + (dz + 19.6) * (dz + 19.6)) / 54.0)
+            + 4.1 * Math.exp(-((dx - 8.2) * (dx - 8.2) + (dz + 19.8) * (dz + 19.8)) / 50.0);
+          baseH = Math.max(baseH, platY + karstBase * ridgeM);
+        }
+      } else if (prof.style === "aegean_acropolis") {
+        // 愛琴海衛城・T字型狹長白堊海岬半島：5.8m 高衛城主崖直落海面 ＋ 寬敞南岬攀升長坡
+        const rotX = dx * 0.99 - dz * 0.14;
+        const rotZ = dx * 0.14 + dz * 0.99;
+        const coastMod = 1.0 + 0.06 * Math.sin(ang * 3 + seed) + 0.03 * Math.cos(ang * 4);
+        const u = Math.hypot(rotX / (r * 0.82), (rotZ + 3.2) / (r * 0.74)) / coastMod;
+        if (u <= 0.79) {
+          baseH = platY;
+        } else if (u <= 0.88) {
+          baseH = platY - this._smoothStep(0.79, 0.88, u) * (platY + 1.15);
+        }
+        // 南側陡崖突岬半島 (dz 10.2..25.6，與主平台無縫相接)
+        if (dz >= 10.2 && dz <= 26.2) {
+          const capeHalfW = Math.max(3.2, 5.8 - (dz - 10.2) * 0.16);
+          const cxAbs = Math.abs(dx);
+          if (cxAbs <= capeHalfW + 2.0 && dz <= 25.6) {
+            const spineT = Math.max(0, Math.min(1, (dz - 12.2) / 11.2));
+            const spineH = platY - spineT * (platY - 1.5);
+            const wallDrop = cxAbs <= capeHalfW
+              ? spineH
+              : spineH - this._smoothStep(capeHalfW, capeHalfW + 1.6, cxAbs) * (spineH + 1.15);
+            const endDrop = dz > 23.6 ? (1.0 - this._smoothStep(23.6, 25.6, dz)) * (wallDrop + 1.15) - 1.15 : wallDrop;
+            baseH = Math.max(baseH, endDrop);
+          }
+        }
+        // 歷史海灣垂釣小岩碼頭 (act-his-fishing {x: 9.2, z: 22.0})
+        const fishPier = Math.hypot(dx - 9.2, dz - 22.0);
+        if (fishPier < 3.4) {
+          const fb = 1.0 - this._smoothStep(1.5, 3.4, fishPier);
+          baseH = Math.max(baseH, -1.15 + 1.8 * fb);
+        }
+      } else {
+        // 公民社會島・幾何方正雙層海港城邦：削角方形 5.0m 要塞 ＋ 雙側開放港池 (-1.15m) ＋ 雙翼 L 形石築防波堤
+        const ux = Math.abs(dx) / (r * 0.66);
+        const uz = Math.abs(dz + 2.6) / (r * 0.58);
+        const uBox = Math.max(ux, uz) * 0.84 + Math.hypot(ux, uz) * 0.16;
+        if (uBox <= 0.86) {
+          baseH = platY;
+        } else if (uBox <= 0.94) {
+          baseH = platY - this._smoothStep(0.86, 0.94, uBox) * (platY + 1.15);
+        }
+        // 南側雙層海港與開放水港池 (dz 9.0..27.6，與上層 5.0m 要塞無縫銜接)
+        if (dz >= 9.0 && dz <= 27.6) {
+          if (Math.abs(dx) <= 7.4 && dz <= 22.6) {
+            const sideEdge = 1.0 - this._smoothStep(6.0, 7.4, Math.abs(dx));
+            let harbH = 1.3;
+            if (dz <= 18.0) {
+              const rampSide = 1.0 - this._smoothStep(2.6, 3.3, Math.abs(dx));
+              const rampH = platY - Math.max(0, Math.min(1, (dz - 10.4) / 6.8)) * (platY - 1.3);
+              const shearWall = dz <= 12.6 ? platY - this._smoothStep(11.6, 12.6, dz) * (platY - 1.3) : 1.3;
+              harbH = Math.max(shearWall, rampH * rampSide + shearWall * (1 - rampSide));
+            } else if (dz >= 21.2) {
+              harbH = 1.3 - this._smoothStep(21.2, 22.6, dz) * 2.45;
+            }
+            baseH = Math.max(baseH, -1.15 + (harbH + 1.15) * sideEdge);
+          }
+          // 雙翼 L 型外海防波堤石臂
+          [-1, 1].forEach((side) => {
+            const onOuterArm = dz >= 11.6 && dz <= 26.2 && Math.abs(dx - side * 13.6) < 2.0;
+            const onHookTip = dz >= 24.0 && dz <= 26.6 && Math.abs(dx) >= 5.8 && Math.abs(dx) <= 14.2 && Math.sign(dx) === side;
+            if (onOuterArm || onHookTip) {
+              const armD = onOuterArm ? Math.abs(dx - side * 13.6) / 2.0 : Math.abs(dz - 25.3) / 1.3;
+              const armH = 1.45 - this._smoothStep(0.55, 1.0, armD) * 2.6;
+              baseH = Math.max(baseH, armH);
+            }
+          });
+        }
       }
 
-      const sd = Math.hypot(dx / 7.8, (dz + 5.5) / 6.5);
-      const onPlat = dist <= platEnd ? 1 : 0;
-      const terraceBlend = (1.0 - this._smoothStep(0.84, 1.22, sd)) * onPlat;
-      const terraceH = 1.84 + terraceBlend * (2.48 - 1.84);
+      // 聖殿高台與中央迎賓大石階（中心 z=-7.8，樓梯 z=5.4 -> 1.6）
+      const sd = Math.hypot(dx / 10.2, (dz + 7.8) / 8.4);
+      const onCore = dist <= r * 0.86 && dz <= 11.2 ? 1 : 0;
+      const terraceBlend = (1.0 - this._smoothStep(0.84, 1.22, sd)) * onCore;
+      const terraceH = terraceBlend > 0.001 ? platY + terraceBlend * (sanctY - platY) : -10;
 
-      const st = Math.max(0, Math.min(1, (3.95 - dz) / 3.5));
-      const stairSide = 1.0 - this._smoothStep(1.95, 2.55, Math.abs(dx));
-      const stairH = (1.84 + st * (2.48 - 1.84) * stairSide) * onPlat;
+      const st = Math.max(0, Math.min(1, (5.4 - dz) / 3.8));
+      const stairSide = 1.0 - this._smoothStep(2.25, 2.95, Math.abs(dx));
+      const stairMask = stairSide * onCore * (dz >= 1.2 && dz <= 5.7 ? 1 : 0);
+      const stairH = stairMask > 0.001 ? platY + st * (sanctY - platY) * stairMask : -10;
 
-      return Math.max(baseH, terraceH, stairH);
+      let finalH = Math.max(baseH, terraceH, stairH);
+
+      // 跨海長橋登島接頭平順銜接區
+      const bm = this._getIslandBridgeMeta(island);
+      const inDirX = -bm.dxAxis;
+      const inDirZ = -bm.dzAxis;
+      const alongIn = dx * inDirX + dz * inDirZ;
+      const perpIn = Math.abs(-dx * inDirZ + dz * inDirX);
+      if (alongIn >= r * 0.46 && alongIn <= r * 0.88 && perpIn <= 3.4) {
+        const lenBlend = Math.sin(((alongIn - r * 0.46) / Math.max(r * 0.42, 0.1)) * Math.PI);
+        const wBlend = 1.0 - this._smoothStep(1.6, 3.4, perpIn);
+        const lipBlend = Math.min(1.0, lenBlend * wBlend * 1.45);
+        finalH = finalH + (bm.endY - finalH) * lipBlend;
+      }
+
+      return finalH;
     }
 
     _createSculptedTerrainMesh(outerRadius, heightFn, mat, radialSegs = 68, ringSegs = 34) {
@@ -3269,8 +3862,11 @@
 
     _createTerrainShaderMat(theme, options = {}) {
       const THREE = window.THREE;
+      const env = this._getEnvTextures();
       const isHub = Boolean(options.isHub);
       const biomeMode = options.biomeMode || 0.0;
+      const islandStyle = options.islandStyle || 0.0;
+      const aveMaxZ = options.aveMaxZ || 20.0;
       const alcoves = (options.alcoves || []).slice(0, 6);
       while (alcoves.length < 6) alcoves.push(new THREE.Vector3(999, 999, 0));
 
@@ -3280,21 +3876,27 @@
 
       const uniforms = {
         uTime: { value: 0 },
+        uTexGrass: { value: env.grass },
+        uTexPlaza: { value: env.plaza },
+        uTexCliff: { value: env.cliff },
+        uTexSand: { value: env.sand },
         uGrassLight: { value: grassLight },
         uGrassDark: { value: grassDark },
         uSandColor: { value: sandCol },
-        uStoneLight: { value: new THREE.Color("#f0e5d3") },
-        uStoneDark: { value: new THREE.Color("#cbbda7") },
-        uCliffLight: { value: new THREE.Color("#cbb193") },
-        uCliffDark: { value: new THREE.Color("#967a63") },
+        uStoneLight: { value: new THREE.Color(options.stoneLight || "#f0e5d3") },
+        uStoneDark: { value: new THREE.Color(options.stoneDark || "#cbbda7") },
+        uCliffLight: { value: new THREE.Color(options.cliffLight || "#cbb193") },
+        uCliffDark: { value: new THREE.Color(options.cliffDark || "#967a63") },
         uAccentColor: { value: new THREE.Color(options.accentColor || "#d97706") },
         uSunDir: { value: new THREE.Vector3(0.42, 0.78, 0.44).normalize() },
         uSunTint: { value: new THREE.Color("#ffffff") },
         uFogColor: { value: new THREE.Color("#b8e2f8") },
-        uFogDensity: { value: 0.0014 },
+        uFogDensity: { value: 0.0011 },
         uNightMix: { value: 0.0 },
         uIsHub: { value: isHub ? 1.0 : 0.0 },
         uBiomeMode: { value: biomeMode },
+        uIslandStyle: { value: islandStyle },
+        uAveMaxZ: { value: aveMaxZ },
         uAlcoves: { value: alcoves }
       };
 
@@ -3316,6 +3918,10 @@
         ].join("\n"),
         fragmentShader: [
           "uniform float uTime;",
+          "uniform sampler2D uTexGrass;",
+          "uniform sampler2D uTexPlaza;",
+          "uniform sampler2D uTexCliff;",
+          "uniform sampler2D uTexSand;",
           "uniform vec3 uGrassLight;",
           "uniform vec3 uGrassDark;",
           "uniform vec3 uSandColor;",
@@ -3331,6 +3937,8 @@
           "uniform float uNightMix;",
           "uniform float uIsHub;",
           "uniform float uBiomeMode;",
+          "uniform float uIslandStyle;",
+          "uniform float uAveMaxZ;",
           "uniform vec3 uAlcoves[6];",
           "varying vec3 vLocalPos;",
           "varying vec3 vLocalNormal;",
@@ -3338,11 +3946,6 @@
           "varying vec3 vWorldNormal;",
           "float hash21(vec2 p) {",
           "  return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);",
-          "}",
-          "vec2 hash22(vec2 p) {",
-          "  vec3 p3 = fract(vec3(p.xyx) * vec3(0.1031, 0.1030, 0.0973));",
-          "  p3 += dot(p3, p3.yzx + 33.33);",
-          "  return fract((p3.xx + p3.yz) * p3.zy);",
           "}",
           "float vnoise(vec2 p) {",
           "  vec2 i = floor(p);",
@@ -3364,91 +3967,117 @@
           "  }",
           "  return v;",
           "}",
-          "vec2 voronoiStone(vec2 x) {",
-          "  vec2 n = floor(x);",
-          "  vec2 f = fract(x);",
-          "  float md = 8.0;",
-          "  float md2 = 8.0;",
-          "  float id = 0.0;",
-          "  for (int j = -1; j <= 1; j++) {",
-          "    for (int i = -1; i <= 1; i++) {",
-          "      vec2 g = vec2(float(i), float(j));",
-          "      vec2 o = 0.15 + 0.7 * hash22(n + g);",
-          "      vec2 r = g + o - f;",
-          "      float d = dot(r, r);",
-          "      if (d < md) {",
-          "        md2 = md;",
-          "        md = d;",
-          "        id = hash21(n + g);",
-          "      } else if (d < md2) {",
-          "        md2 = d;",
-          "      }",
-          "    }",
-          "  }",
-          "  return vec2(sqrt(md2) - sqrt(md), id);",
-          "}",
           "void main() {",
           "  vec2 p = vLocalPos.xz;",
           "  float h = vLocalPos.y;",
           "  vec3 nrm = normalize(vLocalNormal);",
-          "  float macro = fbm(p * 0.18);",
-          "  float detail = fbm(p * 0.62);",
+          "  float macro = fbm(p * 0.14);",
+          "  float detail = fbm(p * 0.55);",
           "  float ndl = dot(normalize(vWorldNormal), normalize(uSunDir)) * 0.5 + 0.5;",
-          "  float cel = mix(0.32, 1.0, smoothstep(0.36, 0.64, ndl));",
-          "  float cloud = smoothstep(0.54, 0.80, fbm(vWorldPos.xz * 0.036 + vec2(uTime * 0.24, -uTime * 0.13)));",
-          "  vec3 grassCol = mix(uGrassDark, uGrassLight, clamp(macro * 0.55 + detail * 0.45, 0.0, 1.0));",
-          "  grassCol *= mix(0.84, 1.06, cel);",
-          "  grassCol = mix(grassCol, grassCol * vec3(0.84, 0.90, 0.97), cloud * 0.26 * (1.0 - uNightMix));",
+          "  float cel = mix(0.36, 1.0, smoothstep(0.36, 0.64, ndl));",
+          "  float cloud = smoothstep(0.54, 0.80, fbm(vWorldPos.xz * 0.032 + vec2(uTime * 0.24, -uTime * 0.13)));",
+          "  vec3 gRawA = texture2D(uTexGrass, p * 0.22).rgb;",
+          "  vec3 gRawB = texture2D(uTexGrass, p * 0.085 + vec2(0.37, 0.19)).rgb;",
+          "  float gLum = dot(gRawA * 0.68 + gRawB * 0.32, vec3(0.30, 0.59, 0.11));",
+          "  float gDetail = clamp((gLum - 0.80) * 4.2 + 0.5, 0.0, 1.0);",
+          "  vec3 richDark = uGrassDark * vec3(0.76, 0.86, 0.76);",
+          "  vec3 richLight = uGrassLight * vec3(1.14, 1.16, 0.96);",
+          "  float sunPatch = smoothstep(0.42, 0.78, fbm(p * 0.24 + vec2(3.1, 1.7)));",
+          "  vec3 grassCol = mix(richDark, richLight, clamp(macro * 0.40 + gDetail * 0.45 + sunPatch * 0.15, 0.0, 1.0));",
+          "  float petalDot = smoothstep(0.75, 0.90, vnoise(p * 1.15)) * smoothstep(0.60, 0.82, gDetail);",
+          "  vec3 petalTint = vec3(0.98, 0.92, 0.55);",
+          "  if (uIslandStyle > 1.5 && uIslandStyle < 2.5) {",
+          "    petalTint = vec3(0.99, 0.72, 0.84);",
+          "  } else if (uIslandStyle > 0.5 && uIslandStyle < 1.5) {",
+          "    petalTint = vec3(0.95, 0.84, 0.42);",
+          "  } else if (uIslandStyle > 2.5 && uIslandStyle < 3.5) {",
+          "    petalTint = vec3(0.98, 0.62, 0.76);",
+          "  } else if (uIslandStyle > 3.5 && uIslandStyle < 4.5) {",
+          "    petalTint = vec3(0.76, 0.90, 0.99);",
+          "  } else if (uIslandStyle > 4.5 && uIslandStyle < 5.5) {",
+          "    petalTint = vec3(0.99, 0.97, 0.86);",
+          "  }",
+          "  grassCol = mix(grassCol, petalTint, petalDot * 0.46);",
+          "  grassCol *= mix(0.82, 1.10, cel);",
+          "  grassCol = mix(grassCol, grassCol * vec3(0.80, 0.88, 0.98), cloud * 0.28 * (1.0 - uNightMix));",
           "  float stoneMask = 0.0;",
           "  float trimMask = 0.0;",
           "  if (uIsHub > 0.5) {",
           "    float hd = length(p);",
-          "    float plazaM = 1.0 - smoothstep(7.7, 8.28, hd);",
-          "    float aveW = 1.85 + (vnoise(p * 0.9) - 0.5) * 0.26;",
-          "    float southM = (1.0 - smoothstep(aveW - 0.3, aveW + 0.2, abs(p.x))) * smoothstep(6.0, 7.2, p.y) * (1.0 - smoothstep(11.4, 12.6, p.y));",
+          "    float plazaM = 1.0 - smoothstep(12.0, 12.8, hd);",
+          "    float aveW = 2.45 + (vnoise(p * 0.8) - 0.5) * 0.28;",
+          "    float southM = (1.0 - smoothstep(aveW - 0.35, aveW + 0.25, abs(p.x))) * smoothstep(8.5, 9.5, p.y) * (1.0 - smoothstep(15.2, 16.4, p.y));",
           "    stoneMask = max(plazaM, southM);",
-          "    trimMask = smoothstep(7.2, 7.65, hd) * (1.0 - smoothstep(7.65, 8.05, hd));",
+          "    trimMask = smoothstep(11.35, 11.9, hd) * (1.0 - smoothstep(12.0, 12.6, hd));",
           "  } else {",
-          "    float sd = length(vec2(p.x / 7.05, (p.y + 5.5) / 5.75));",
+          "    float sd = length(vec2(p.x / 9.2, (p.y + 7.8) / 7.5));",
           "    float sanctM = 1.0 - smoothstep(0.90, 1.04, sd);",
           "    trimMask = smoothstep(0.84, 0.90, sd) * (1.0 - smoothstep(0.92, 0.98, sd));",
-          "    float aveEdge = 2.08 + (vnoise(p * 0.85) - 0.5) * 0.34;",
-          "    float aveM = (1.0 - smoothstep(aveEdge - 0.32, aveEdge + 0.24, abs(p.x))) * smoothstep(-1.0, 0.4, p.y) * (1.0 - smoothstep(14.8, 17.4, p.y));",
+          "    float aveEdge = 2.65 + (vnoise(p * 0.8) - 0.5) * 0.36;",
+          "    float aveM = (1.0 - smoothstep(aveEdge - 0.35, aveEdge + 0.25, abs(p.x))) * smoothstep(-1.0, 0.4, p.y) * (1.0 - smoothstep(uAveMaxZ - 2.6, uAveMaxZ, p.y));",
           "    stoneMask = max(sanctM, aveM);",
+          "    if (uIslandStyle > 4.5 && uIslandStyle < 5.5) {",
+          "      float portM = smoothstep(13.8, 15.0, p.y) * (1.0 - smoothstep(20.6, 21.8, p.y)) * (1.0 - smoothstep(6.6, 7.6, abs(p.x)));",
+          "      stoneMask = max(stoneMask, portM);",
+          "    }",
           "    for (int i = 0; i < 6; i++) {",
           "      if (uAlcoves[i].z > 0.1) {",
           "        float ad = length(p - uAlcoves[i].xy) - uAlcoves[i].z;",
-          "        float am = 1.0 - smoothstep(-0.32, 0.16, ad);",
+          "        float am = 1.0 - smoothstep(-0.32, 0.18, ad);",
           "        stoneMask = max(stoneMask, am);",
           "      }",
           "    }",
           "  }",
-          "  vec2 vp = p * 0.82 + vec2(fbm(p * 0.5) * 0.32);",
-          "  vec2 vor = voronoiStone(vp);",
-          "  float mortar = smoothstep(0.035, 0.12, vor.x);",
-          "  vec3 stoneTile = mix(uStoneDark, uStoneLight, 0.42 + vor.y * 0.58);",
-          "  vec3 stoneCol = mix(uStoneDark * 0.86, stoneTile, mortar);",
-          "  stoneCol = mix(stoneCol, mix(stoneCol, uAccentColor, 0.32), trimMask * 0.85);",
+          "  vec3 pRawA = texture2D(uTexPlaza, p * 0.23).rgb;",
+          "  vec3 pRawB = texture2D(uTexPlaza, p * 0.11 + vec2(0.18, 0.61)).rgb;",
+          "  float pLum = dot(pRawA * 0.78 + pRawB * 0.22, vec3(0.30, 0.59, 0.11));",
+          "  float stoneTone = clamp((pLum - 0.50) * 1.45 + 0.5, 0.0, 1.0);",
+          "  vec3 stoneCol = mix(uStoneDark * 0.84, uStoneLight * 1.08, stoneTone);",
+          "  stoneCol = mix(stoneCol, mix(stoneCol, uAccentColor, 0.30), trimMask * 0.85);",
           "  stoneCol *= mix(0.86, 1.04, cel);",
-          "  vec3 col = mix(grassCol, stoneCol, stoneMask * 0.95);",
+          "  float shoulder = smoothstep(0.03, 0.42, stoneMask) * (1.0 - smoothstep(0.56, 0.96, stoneMask));",
+          "  vec3 soilCol = mix(uGrassDark * 0.72, uStoneDark * 0.82, detail) * mix(0.86, 1.02, cel);",
+          "  vec3 col = mix(grassCol, stoneCol, stoneMask * 0.96);",
+          "  col = mix(col, soilCol, shoulder * 0.48);",
+          "  vec3 tw = pow(abs(nrm), vec3(4.0));",
+          "  tw /= (tw.x + tw.y + tw.z + 0.0001);",
+          "  vec3 cXY = texture2D(uTexCliff, vec2(p.x, h) * 0.18).rgb;",
+          "  vec3 cZY = texture2D(uTexCliff, vec2(p.y, h) * 0.18).rgb;",
+          "  vec3 cXZ = texture2D(uTexCliff, p * 0.15).rgb;",
+          "  vec3 cliffSample = cXY * tw.z + cZY * tw.x + cXZ * tw.y;",
+          "  float rVal = dot(cliffSample, vec3(0.30, 0.58, 0.12));",
           "  if (uBiomeMode > 0.5) {",
-          "    float lavaMask = (1.0 - smoothstep(-6.5, -2.0, p.x)) * (1.0 - stoneMask) * smoothstep(1.05, 1.55, h);",
-          "    vec3 basalt = mix(vec3(0.24, 0.19, 0.18), vec3(0.36, 0.28, 0.25), detail);",
-          "    float crack = 1.0 - smoothstep(0.02, 0.085, vor.x);",
-          "    basalt = mix(basalt, vec3(1.0, 0.44, 0.16), crack * 0.72 * (1.0 - smoothstep(-8.0, -3.5, p.x)));",
-          "    col = mix(col, basalt, lavaMask * 0.88);",
-          "    float iceMask = smoothstep(2.0, 6.2, p.x) * (1.0 - stoneMask) * smoothstep(1.05, 1.55, h);",
-          "    vec3 snowCol = mix(vec3(0.68, 0.88, 0.97), vec3(0.94, 0.99, 1.0), cel * 0.7 + detail * 0.3);",
-          "    col = mix(col, snowCol, iceMask * 0.9);",
+          "    float lavaMask = (1.0 - smoothstep(-8.8, -3.6, p.x)) * (1.0 - stoneMask) * smoothstep(2.2, 5.2, h);",
+          "    float rockFade = clamp((rVal - 0.30) * 1.5, 0.0, 1.0);",
+          "    vec3 basalt = mix(vec3(0.20, 0.16, 0.16), vec3(0.38, 0.30, 0.28), rockFade);",
+          "    float crack = 1.0 - smoothstep(0.28, 0.44, rVal);",
+          "    basalt = mix(basalt, vec3(1.0, 0.43, 0.14), crack * 0.78 * (1.0 - smoothstep(-10.5, -4.5, p.x)));",
+          "    col = mix(col, basalt, lavaMask * 0.90);",
+          "    float iceMask = smoothstep(4.8, 10.2, p.x) * (1.0 - stoneMask) * smoothstep(4.2, 6.4, h);",
+          "    vec3 snowCol = mix(vec3(0.68, 0.88, 0.97), vec3(0.95, 0.99, 1.0), cel * 0.65 + rockFade * 0.35);",
+          "    col = mix(col, snowCol, iceMask * 0.88);",
+          "    float alpineSnow = smoothstep(8.6, 11.6, h) * smoothstep(-3.0, 2.5, p.x);",
+          "    col = mix(col, snowCol, alpineSnow * 0.92);",
           "  }",
-          "  float cliffSlope = smoothstep(0.10, 0.34, 1.0 - nrm.y) * (1.0 - stoneMask * 0.78);",
-          "  float strata = sin(h * 14.0 + macro * 4.5) * 0.5 + 0.5;",
-          "  vec3 cliffCol = mix(uCliffDark, uCliffLight, strata * 0.5 + detail * 0.5) * mix(0.84, 1.04, cel);",
-          "  col = mix(col, cliffCol, cliffSlope * 0.92);",
-          "  float sandMask = (1.0 - smoothstep(0.82, 1.48, h)) * (1.0 - stoneMask * 0.85);",
-          "  vec3 wetSand = uSandColor * 0.76;",
-          "  vec3 sandFinal = mix(wetSand, uSandColor, smoothstep(0.05, 0.65, h)) * mix(0.88, 1.05, cel);",
+          "  float cliffSlope = smoothstep(0.14, 0.40, 1.0 - nrm.y) * (1.0 - stoneMask * 0.68);",
+          "  float rockNorm = clamp((rVal - 0.26) * 1.48, 0.0, 1.0);",
+          "  vec3 cliffCol = mix(uCliffDark * 0.84, uCliffLight * 1.14, rockNorm) * mix(0.84, 1.05, cel);",
+          "  float wetRock = 1.0 - smoothstep(0.0, 1.65, h);",
+          "  cliffCol = mix(cliffCol, cliffCol * vec3(0.56, 0.62, 0.68), wetRock * 0.72);",
+          "  col = mix(col, cliffCol, cliffSlope * 0.94);",
+          "  float sandMask = (1.0 - smoothstep(0.55, 1.35, h)) * (1.0 - cliffSlope * 0.85) * (1.0 - stoneMask * 0.88);",
+          "  vec3 sandTex = texture2D(uTexSand, p * 0.22).rgb;",
+          "  float sLum = dot(sandTex, vec3(0.30, 0.59, 0.11));",
+          "  vec3 sandTinted = uSandColor * mix(0.82, 1.12, clamp((sLum - 0.68) * 2.4 + 0.5, 0.0, 1.0));",
+          "  vec3 wetSand = sandTinted * 0.74;",
+          "  vec3 sandFinal = mix(wetSand, sandTinted, smoothstep(0.05, 0.65, h)) * mix(0.88, 1.05, cel);",
+          "  if (uIslandStyle > 2.5 && uIslandStyle < 3.5) {",
+          "    float shoalGlow = (1.0 - smoothstep(-0.35, 0.25, h));",
+          "    sandFinal = mix(sandFinal, vec3(0.35, 0.92, 0.88), shoalGlow * 0.72);",
+          "  }",
           "  col = mix(col, sandFinal, sandMask);",
+          "  float surfLine = (1.0 - smoothstep(-0.22, 0.22, h)) * smoothstep(-0.45, -0.15, h);",
+          "  col = mix(col, vec3(0.95, 0.99, 1.0), surfLine * 0.45);",
           "  col *= uSunTint;",
           "  col = mix(col, col * vec3(0.42, 0.52, 0.72), uNightMix * 0.72);",
           "  float distCam = length(cameraPosition - vWorldPos);",
@@ -3463,7 +4092,7 @@
       return mat;
     }
 
-    _buildInstancedMeadowGrass(group, island, seed, isHub, count, heightFn, theme, alcoveList = []) {
+    _buildInstancedMeadowGrass(group, island, seed, isHub, count, heightFn, theme, alcoveList = [], occupiedList = []) {
       const THREE = window.THREE;
       if (!THREE.InstancedMesh) return;
 
@@ -3476,11 +4105,11 @@
         const ang = (b / 3) * Math.PI * 2 + 0.35;
         const cs = Math.cos(ang);
         const sn = Math.sin(ang);
-        const w0 = 0.095;
-        const w1 = 0.062;
-        const h1 = 0.24;
-        const h2 = 0.48;
-        const lean = 0.11;
+        const w0 = 0.115;
+        const w1 = 0.072;
+        const h1 = 0.27;
+        const h2 = 0.54;
+        const lean = 0.12;
         const rx = cs * 0.04;
         const rz = sn * 0.04;
         const addPt = (lx, ly, lz, u, v) => {
@@ -3501,15 +4130,15 @@
       bladeGeo.setIndex(indices);
       bladeGeo.computeVertexNormals();
 
-      const baseCol = new THREE.Color(theme.hillColor || "#589f63");
-      const tipCol = new THREE.Color(theme.grassColor || "#86d07d").lerp(new THREE.Color("#e8f79e"), 0.34);
+      const baseCol = new THREE.Color(theme.hillColor || "#4e9658").lerp(new THREE.Color("#2e6f40"), 0.22);
+      const tipCol = new THREE.Color(theme.grassColor || "#7ed472").lerp(new THREE.Color("#d9f26b"), 0.36);
       const uniforms = {
         uTime: { value: 0 },
         uBaseColor: { value: baseCol },
         uTipColor: { value: tipCol },
         uFlowerColor: { value: new THREE.Color((theme.foliageColors && theme.foliageColors[0]) || "#ffd32a") },
         uFogColor: { value: new THREE.Color("#b8e2f8") },
-        uFogDensity: { value: 0.0014 },
+        uFogDensity: { value: 0.0011 },
         uNightMix: { value: 0.0 }
       };
 
@@ -3569,39 +4198,54 @@
 
       const dummy = new THREE.Object3D();
       const placements = [];
-      const rMax = isHub ? 11.4 : ((island && island.radius) || 20) * 0.75;
+      const prof = isHub ? null : this._getIslandProfile(island);
+      const rMax = isHub ? 15.6 : ((island && island.radius) || 26.5) * 0.92;
+      const minGrassY = isHub ? this._getHubPlazaY() - 0.55 : prof.platY - 0.55;
       let rng = Math.round((seed + 1.37) * 9973) + (isHub ? 777 : 131);
       const nextRand = () => {
         rng = (rng * 1664525 + 1013904223) >>> 0;
         return rng / 4294967296;
       };
 
-      for (let t = 0; t < count * 5 && placements.length < count; t++) {
+      for (let t = 0; t < count * 8 && placements.length < count; t++) {
         const ang = nextRand() * Math.PI * 2;
-        const rr = isHub ? 8.35 + nextRand() * 2.85 : 2.2 + Math.sqrt(nextRand()) * (rMax - 2.2);
+        const rr = isHub ? 12.6 + nextRand() * 3.0 : 3.0 + Math.sqrt(nextRand()) * (rMax - 3.0);
         const gx = Math.cos(ang) * rr;
         const gz = Math.sin(ang) * rr;
         if (isHub) {
-          if (Math.abs(gx) < 2.25 && gz > 5.0) continue;
+          if (Math.abs(gx) < 2.8 && gz > 6.5) continue;
+          if (Math.hypot(gx - 16.0, gz + 0.4) < 3.6) continue;
         } else {
-          if (Math.abs(gx) < 2.65 && gz > -4.5 && gz < 16.5) continue;
-          if (Math.hypot(gx / 7.45, (gz + 5.5) / 6.15) < 0.98) continue;
+          if (Math.abs(gx) < 3.6 && gz > -4.5 && gz < prof.aveMaxZ + 1.0) continue;
+          if (Math.hypot(gx / 10.6, (gz + 7.8) / 8.8) < 1.06) continue;
           let nearSpot = false;
           for (let ai = 0; ai < alcoveList.length; ai++) {
-            if (Math.hypot(gx - alcoveList[ai].x, gz - alcoveList[ai].z) < 2.25) {
+            if (Math.hypot(gx - alcoveList[ai].x, gz - alcoveList[ai].z) < 2.5) {
               nearSpot = true;
               break;
             }
           }
+          if (!nearSpot && occupiedList && occupiedList.length) {
+            for (let oi = 0; oi < occupiedList.length; oi++) {
+              if (Math.hypot(gx - occupiedList[oi].x, gz - occupiedList[oi].z) < occupiedList[oi].r + 0.65) {
+                nearSpot = true;
+                break;
+              }
+            }
+          }
           if (nearSpot) continue;
-          if (Math.hypot(gx + 11.4, gz - 5.4) < 2.4) continue; // cottage
-          if (Math.hypot(gx - 11.2, gz + 6.6) < 2.4) continue; // lighthouse
-          if (Math.hypot(gx + 4.0, gz - 11.4) < 1.8) continue; // board
-          if (Math.hypot(gx - 3.4, gz - 9.6) < 1.8) continue; // guardian cat
-          if (island.id === "geography" && gx > 3.6) continue; // keep glacier snow clean
+          if (island.id === "civics" && gz > 11.0 && Math.abs(gx) < 8.4) continue;
+          if (island.id === "history" && gz > 10.0 && Math.abs(gx) < 5.2) continue;
+          if (island.id === "english" && gz > 9.5 && Math.abs(gx) < 4.4) continue;
+          if (island.id === "geography" && gx > 4.6) continue;
         }
         const gy = heightFn(gx, gz);
-        if (gy < 1.48) continue;
+        if (gy < minGrassY) continue;
+        if (!isHub && island.id === "geography" && gy > 10.6) continue;
+        const slope =
+          Math.abs(heightFn(gx + 0.45, gz) - heightFn(gx - 0.45, gz)) +
+          Math.abs(heightFn(gx, gz + 0.45) - heightFn(gx, gz - 0.45));
+        if (slope > 0.42) continue;
         placements.push({ x: gx, y: gy - 0.03, z: gz, s: 0.72 + nextRand() * 0.65, ry: nextRand() * Math.PI * 2 });
       }
 
@@ -3617,13 +4261,48 @@
       });
       inst.instanceMatrix.needsUpdate = true;
       group.add(inst);
+
+      // 點綴 3D 立體野花朵（沿合法草坡叢生，完全避開石徑與建築）
+      const flowerStride = isHub ? 7 : 6;
+      const flowerSamples = placements.filter((_, idx) => idx % flowerStride === 0).slice(0, isHub ? 72 : 160);
+      if (flowerSamples.length > 0 && typeof THREE.OctahedronGeometry === "function") {
+        const flowerGeo = new THREE.OctahedronGeometry(0.11, 0);
+        const flowerMat = this._disableOutline(
+          new THREE.MeshBasicMaterial({ color: "#ffffff" }),
+          null
+        );
+        const instFlower = new THREE.InstancedMesh(flowerGeo, flowerMat, flowerSamples.length);
+        instFlower.frustumCulled = false;
+        const flPalette = [
+          (theme.foliageColors && theme.foliageColors[0]) || "#f9a8d4",
+          "#ffffff",
+          "#fde047",
+          (theme.foliageColors && theme.foliageColors[1]) || "#93c5fd"
+        ];
+        flowerSamples.forEach((fp, fi) => {
+          const flS = fp.s * (0.85 + (fi % 3) * 0.2);
+          dummy.position.set(fp.x + (fi % 2 ? 0.08 : -0.08), fp.y + 0.36 * fp.s, fp.z);
+          dummy.rotation.set(0.2, fp.ry, 0);
+          dummy.scale.set(flS, flS * 0.55, flS);
+          dummy.updateMatrix();
+          instFlower.setMatrixAt(fi, dummy.matrix);
+          if (typeof instFlower.setColorAt === "function") {
+            instFlower.setColorAt(fi, new THREE.Color(flPalette[fi % flPalette.length]));
+          }
+        });
+        instFlower.instanceMatrix.needsUpdate = true;
+        if (instFlower.instanceColor) instFlower.instanceColor.needsUpdate = true;
+        group.add(instFlower);
+      }
     }
 
     /* ==================== 中央主島：原神級無縫石磚廣場 ＋ 3D搖曳草海 ＋ 南山自強鐘樓 ==================== */
     _buildCentralHub() {
       const THREE = window.THREE;
+      const env = this._getEnvTextures();
       const hub = new THREE.Group();
       hub.position.set(0, 0, 0);
+      const hubY = this._getHubPlazaY();
 
       const hubTheme = {
         grassColor: "#78c479",
@@ -3633,41 +4312,43 @@
       };
       const hubTerrainMat = this._createTerrainShaderMat(hubTheme, {
         isHub: true,
-        accentColor: "#8f2130"
+        accentColor: "#8f2130",
+        cliffLight: "#cbb69e",
+        cliffDark: "#7f6b59"
       });
       const hubTerrain = this._createSculptedTerrainMesh(
-        14.6,
+        19.2,
         (dx, dz) => this._evalHubHeight(dx, dz),
         hubTerrainMat,
-        60,
-        28
+        84,
+        42
       );
       hubTerrain.userData = { isHub: true };
       hub.add(hubTerrain);
       this.clickTargets.push(hubTerrain);
 
-      // 環形廣場石欄緣邊（讓建築群與中軸大道自然嵌合於地形）
-      const curbMat = this._makeToonMat({ color: "#ece0cf" }, true);
-      const curbRing = new THREE.Mesh(new THREE.TorusGeometry(8.18, 0.14, 8, 48), curbMat);
+      // 環形廣場石欄緣邊（手繪石磚材質，與擴大 12.6m 星形要塞廣場齊平）
+      const curbMat = this._makeToonMat({ color: "#f6efe4", map: env.plaza }, true);
+      const curbRing = new THREE.Mesh(new THREE.TorusGeometry(12.55, 0.18, 8, 64), curbMat);
       curbRing.rotation.x = Math.PI / 2;
-      curbRing.position.y = 1.76;
-      curbRing.scale.set(1, 1, 0.7);
+      curbRing.position.y = hubY;
+      curbRing.scale.set(1, 1, 0.72);
       hub.add(curbRing);
 
-      // 3D 隨風搖曳草原（鋪設於外圍草坡，避開中心石板廣場與南側大道）
+      // 3D 隨風搖曳草原與點綴野花（鋪設於要塞外緣草坡）
       this._buildInstancedMeadowGrass(
         hub,
         null,
         0.8,
         true,
-        280,
+        520,
         (dx, dz) => this._evalHubHeight(dx, dz),
         hubTheme
       );
 
       // 真 3D 南山紅磚白柱鐘塔校園大廳（未載入 hub_3d.glb 前之備援模型）
       const hallGroup = new THREE.Group();
-      hallGroup.position.set(0, 1.76, -5.6);
+      hallGroup.position.set(0, hubY, -7.6);
       const brickMat = new THREE.MeshStandardMaterial({ color: "#b34b3b", roughness: 0.72 });
       const trimMat = new THREE.MeshStandardMaterial({ color: "#f8fafc", roughness: 0.5 });
       const slateMat = new THREE.MeshStandardMaterial({ color: "#2b425c", roughness: 0.45 });
@@ -3750,12 +4431,12 @@
       });
       this.hubHallGroup = hallGroup;
       hub.add(hallGroup);
-      this._addBoxCollider(0, -5.6, 4.4, 2.55, 0, 11.0);
+      this._addBoxCollider(0, -7.6, 4.4, 2.55, 0, hubY + 10.5, null, "landmark_hub");
 
       // 中央羅盤許願水池
       const fountain = new THREE.Group();
-      fountain.position.set(0, 1.76, 1.0);
-      const fRim = new THREE.Mesh(new THREE.CylinderGeometry(0.96, 1.08, 0.24, 24), trimMat);
+      fountain.position.set(0, hubY, 1.2);
+      const fRim = new THREE.Mesh(new THREE.CylinderGeometry(0.96, 1.08, 0.24, 24), curbMat);
       fRim.position.y = 0.12;
       const fWater = new THREE.Mesh(new THREE.CylinderGeometry(0.8, 0.8, 0.26, 24), new THREE.MeshBasicMaterial({ color: "#38bdf8" }));
       fWater.position.y = 0.13;
@@ -3773,11 +4454,11 @@
         starRing.rotation.y = t * 0.9;
       });
       hub.add(fountain);
-      this._addCircleCollider(0, 1.0, 0.98, 3.0);
+      this._addCircleCollider(0, 1.2, 1.05, hubY + 2.2);
 
       // Hub 自強不息總進度公佈欄 + 校園長椅
       const hubBoard = this._buildCampusBulletinBoard("hub", "🏫 南山自強複習榜", "#8f2130");
-      hubBoard.position.set(4.9, 1.76, 3.2);
+      hubBoard.position.set(6.8, hubY, 4.6);
       hubBoard.rotation.y = -0.38;
       hubBoard.traverse((c) => {
         if (c.isMesh) {
@@ -3786,22 +4467,22 @@
         }
       });
       hub.add(hubBoard);
-      this._addBoxCollider(4.9, 3.2, 0.92, 0.32, -0.38, 3.8);
+      this._addBoxCollider(6.8, 4.6, 0.92, 0.32, -0.38, hubY + 2.8);
 
-      [-5.6, 5.6].forEach((bx) => {
+      [-7.8, 7.8].forEach((bx) => {
         const b = this._buildCampusBench();
-        b.position.set(bx, 1.76, 0.2);
+        b.position.set(bx, hubY, 1.4);
         b.rotation.y = bx < 0 ? 0.55 : -0.55;
         hub.add(b);
-        this._addCircleCollider(bx, 0.2, 0.58, 2.6);
+        this._addCircleCollider(bx, 1.4, 0.58, hubY + 2.0);
       });
 
       // Hub 街燈對稱配置於大道兩側
       const hubLampMat = new THREE.MeshBasicMaterial({ color: "#fef08a" });
       this.nightGlowMaterials.push(hubLampMat);
-      [-5.6, 5.6].forEach((lx) => {
+      [-7.2, 7.2].forEach((lx) => {
         const lampGroup = new THREE.Group();
-        lampGroup.position.set(lx, 1.74, 3.8);
+        lampGroup.position.set(lx, hubY - 0.02, 5.8);
         const post = new THREE.Mesh(
           new THREE.CylinderGeometry(0.07, 0.09, 1.65, 8),
           new THREE.MeshStandardMaterial({ color: "#475569" })
@@ -3812,8 +4493,43 @@
         lampGroup.add(post, bulb);
         hub.add(lampGroup);
         this.hubLampGroups.push({ group: lampGroup, rotY: lx < 0 ? 0.25 : Math.PI - 0.25 });
-        this._addCircleCollider(lx, 3.8, 0.28, 3.5);
+        this._addCircleCollider(lx, 5.8, 0.28, hubY + 2.5);
       });
+
+      // 4.4m 星形要塞海堤護牆與直入深海石砌墩堡（手繪石磚 + 手繪岩壁材質；閃開 6 條跨海橋與東側碼頭出口）
+      const wallStoneMat = this._makeToonMat({ color: "#efe4d4", map: env.plaza }, true);
+      const darkBastionMat = this._makeToonMat({ color: "#cfc1b2", map: env.cliffTile }, true);
+      const bridgeAngles = (this.islandsData || []).map((isl) => Math.atan2(isl.position.z, isl.position.x));
+      const parapetCount = 32;
+      for (let i = 0; i < parapetCount; i++) {
+        const a = (i / parapetCount) * Math.PI * 2;
+        const nearBridge = bridgeAngles.some((ba) => Math.abs(Math.atan2(Math.sin(a - ba), Math.cos(a - ba))) < 0.22);
+        const nearEastPier = Math.abs(Math.atan2(Math.sin(a), Math.cos(a))) < 0.14;
+        if (nearBridge || nearEastPier) continue;
+        const starR = 14.0 * (1.0 + 0.052 * Math.cos(a * 8.0));
+        const px = Math.cos(a) * starR;
+        const pz = Math.sin(a) * starR;
+        const py = this._evalHubHeight(px, pz);
+
+        const post = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.96, 0.62), wallStoneMat);
+        post.position.set(px, py + 0.38, pz);
+        post.rotation.y = -a;
+        post.castShadow = true;
+        hub.add(post);
+
+        if (i % 3 === 0) {
+          const buttress = new THREE.Mesh(new THREE.CylinderGeometry(0.62, 0.96, py + 1.2, 8), darkBastionMat);
+          buttress.position.set(Math.cos(a) * (starR + 0.72), (py - 1.2) * 0.5, Math.sin(a) * (starR + 0.72));
+          hub.add(buttress);
+        }
+      }
+
+      // 東側海面親水釣魚棧橋 (x ~ 16.0, z ~ -0.4, 貼海 0.6m)
+      const seaPierMat = this._makeToonMat({ color: "#ebd0ae", map: env.wood }, true);
+      const seaPier = new THREE.Mesh(new THREE.BoxGeometry(3.2, 0.22, 2.4), seaPierMat);
+      seaPier.position.set(16.0, 0.54, -0.4);
+      seaPier.receiveShadow = true;
+      hub.add(seaPier);
 
       this.scene.add(hub);
       this.hubGroup = hub;
@@ -3843,12 +4559,13 @@
       );
 
       this.islandsData.forEach((island) => {
-        const target = new THREE.Vector3(island.position.x, 0, island.position.z);
-        const dir = target.clone().normalize();
+        const meta = this._getIslandBridgeMeta(island);
+        const dir = new THREE.Vector3(meta.dxAxis, 0, meta.dzAxis);
         const perpAxis = new THREE.Vector3(-dir.z, 0, dir.x);
-        const totalDist = target.length();
-        const startDist = 11.4;
-        const endDist = totalDist - island.radius * 0.86;
+        const startDist = meta.startDist;
+        const endDist = meta.endDist;
+        const startY = meta.startY;
+        const endY = meta.endY;
         if (endDist <= startDist) return;
 
         const bridgeGroup = new THREE.Group();
@@ -3866,7 +4583,7 @@
         for (let i = 0; i <= steps; i++) {
           const t = i / steps;
           const dist = startDist + (endDist - startDist) * t;
-          const archY = 1.05 + Math.sin(t * Math.PI) * 1.45;
+          const archY = startY + (endY - startY) * t + Math.sin(t * Math.PI) * 1.45;
           const cx = dir.x * dist;
           const cz = dir.z * dist;
 
@@ -3920,25 +4637,28 @@
             });
           }
 
-          // 海面石墩柱與浪花圈
+          // 高架跨海石墩柱（從 4.2~5.6m 橋面深插海面以下）與貼海浪花圈
           if (i === 5 || i === 12 || i === 19) {
             [-0.85, 0.85].forEach((side) => {
               const px = cx + perpAxis.x * side;
               const pz = cz + perpAxis.z * side;
-              const pier = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.28, archY + 1.1, 8), stonePierMat);
-              pier.position.set(px, (archY - 1.1) * 0.5, pz);
-              const foam = new THREE.Mesh(new THREE.RingGeometry(0.28, 0.46, 12), foamMat);
+              const pierH = archY + 1.2;
+              const pier = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.34, pierH, 8), stonePierMat);
+              pier.position.set(px, (archY - 1.2) * 0.5, pz);
+              const foam = new THREE.Mesh(new THREE.RingGeometry(0.32, 0.54, 12), foamMat);
               foam.rotation.x = -Math.PI / 2;
-              foam.position.set(px, 0.25, pz);
+              foam.position.set(px, -0.14, pz);
               bridgeGroup.add(pier, foam);
+              this._addCircleCollider(px, pz, 0.42, archY - 0.1);
             });
           }
         }
 
-        // 橋頭＆島口迎賓彩門拱門（搭配金星徽章）
-        [0.10, 0.94].forEach((gateT) => {
+        // 橋頭＆島口迎賓彩門拱門（避開主島開場相機，並閃開英文島正北向視線通道）
+        [0.14, 0.92].forEach((gateT) => {
+          if (island.id === "english" && gateT > 0.5) return;
           const gDist = startDist + (endDist - startDist) * gateT;
-          const gY = 1.05 + Math.sin(gateT * Math.PI) * 1.45;
+          const gY = startY + (endY - startY) * gateT + Math.sin(gateT * Math.PI) * 1.45;
           const gate = new THREE.Group();
           gate.position.set(dir.x * gDist, gY, dir.z * gDist);
           gate.lookAt(dir.x * (gDist + 1), gY, dir.z * (gDist + 1));
@@ -3972,19 +4692,32 @@
       };
 
       const makeDeco = (id, parentPos, radiusCol, buildFn) => {
+        const surf = this._getSurfaceInfoAt(parentPos.x, parentPos.z, false);
+        const dy = surf && !surf.onWater ? surf.groundY : parentPos.y;
         const g = new THREE.Group();
-        g.position.set(parentPos.x, parentPos.y, parentPos.z);
+        g.position.set(parentPos.x, dy, parentPos.z);
         buildFn(g);
         g.visible = false;
         this.scene.add(g);
         this.decorationMeshes.set(id, g);
         if (radiusCol > 0) {
-          this._addCircleCollider(parentPos.x, parentPos.z, radiusCol, parentPos.y + 2.5, g);
+          this._addCircleCollider(parentPos.x, parentPos.z, radiusCol, dy + 2.6, g);
         }
       };
 
+      const makeIslandDeco = (id, islandId, rawX, rawZ, propR, radiusCol, buildFn) => {
+        const islIdx = this.islandsData.findIndex((i) => i.id === islandId);
+        const isl = islIdx >= 0 ? this.islandsData[islIdx] : null;
+        if (!isl) return;
+        const occ = (this.islandOccupied && this.islandOccupied.get(isl.id)) || [];
+        const seed = islIdx * 1.7 + 0.4;
+        const heightFn = (dx, dz) => this._evalIslandHeight(isl, dx, dz, seed);
+        const spot = this._findClearIslandSpot(isl, rawX, rawZ, propR, heightFn, occ, -0.45);
+        makeDeco(id, { x: isl.position.x + spot.x, y: spot.y, z: isl.position.z + spot.z }, radiusCol, buildFn);
+      };
+
       // 1. 海島露營帳篷 (Hub 左側草坡)
-      makeDeco("bld-tent", { x: -8.6, y: 1.66, z: 1.6 }, 0.95, (g) => {
+      makeDeco("bld-tent", { x: -11.4, y: 4.4, z: 2.2 }, 0.95, (g) => {
         const tent = new THREE.Mesh(
           new THREE.ConeGeometry(1.05, 1.35, 4),
           new THREE.MeshStandardMaterial({ color: "#ff7f50", roughness: 0.7 })
@@ -4001,7 +4734,7 @@
       });
 
       // 2. 貝殼許願噴泉 (Hub 右側草坡)
-      makeDeco("bld-fountain", { x: 8.6, y: 1.66, z: 1.6 }, 0.98, (g) => {
+      makeDeco("bld-fountain", { x: 11.4, y: 4.4, z: 2.2 }, 0.98, (g) => {
         const basin = new THREE.Mesh(
           new THREE.CylinderGeometry(1.0, 1.12, 0.35, 16),
           new THREE.MeshStandardMaterial({ color: "#e2e8f0" })
@@ -4025,8 +4758,7 @@
       });
 
       // 3. 櫻花野餐墊 (Chinese Island — 平鋪不擋路)
-      const pChi = islPos("chinese");
-      makeDeco("bld-picnic", { x: pChi.x + 8.6, y: 1.86, z: pChi.z + 3.2 }, 0, (g) => {
+      makeIslandDeco("bld-picnic", "chinese", 12.2, 3.6, 1.45, 0, (g) => {
         const mat = new THREE.Mesh(
           new THREE.BoxGeometry(1.5, 0.08, 1.2),
           new THREE.MeshStandardMaterial({ color: "#ff9ff3" })
@@ -4040,8 +4772,7 @@
       });
 
       // 4. 和風石燈籠組 (English Island)
-      const pEng = islPos("english");
-      makeDeco("bld-lantern", { x: pEng.x + 8.8, y: 1.85, z: pEng.z + 2.8 }, 0.5, (g) => {
+      makeIslandDeco("bld-lantern", "english", 12.2, 3.6, 1.0, 0.5, (g) => {
         const stone = new THREE.MeshStandardMaterial({ color: "#94a3b8" });
         const glow = new THREE.MeshBasicMaterial({ color: "#fde047" });
         this.nightGlowMaterials.push(glow);
@@ -4056,8 +4787,7 @@
       });
 
       // 5. 天文觀星台 (Geography Island)
-      const pGeo = islPos("geography");
-      makeDeco("bld-telescope", { x: pGeo.x + 8.8, y: 1.85, z: pGeo.z + 2.8 }, 0.8, (g) => {
+      makeIslandDeco("bld-telescope", "geography", 12.2, 3.6, 1.3, 0.8, (g) => {
         const dome = new THREE.Mesh(
           new THREE.SphereGeometry(0.72, 14, 12, 0, Math.PI * 2, 0, Math.PI / 2),
           new THREE.MeshStandardMaterial({ color: "#38bdf8" })
@@ -4078,8 +4808,7 @@
       });
 
       // 6. 夢幻旋轉木馬 (Listening Island)
-      const pLis = islPos("listening");
-      makeDeco("bld-carousel", { x: pLis.x + 8.6, y: 1.85, z: pLis.z + 2.8 }, 0.95, (g) => {
+      makeIslandDeco("bld-carousel", "listening", 12.2, 3.6, 1.45, 0.95, (g) => {
         const spinner = new THREE.Group();
         const roof = new THREE.Mesh(
           new THREE.ConeGeometry(1.15, 0.72, 12),
@@ -4109,8 +4838,7 @@
       });
 
       // 7. 海景摩天輪 (Civics Island)
-      const pCiv = islPos("civics");
-      makeDeco("bld-ferris", { x: pCiv.x + 9.0, y: 1.85, z: pCiv.z + 2.8 }, 0.92, (g) => {
+      makeIslandDeco("bld-ferris", "civics", 12.4, 3.6, 1.45, 0.92, (g) => {
         const standL = new THREE.Mesh(
           new THREE.CylinderGeometry(0.08, 0.12, 2.2, 8),
           new THREE.MeshStandardMaterial({ color: "#f8fafc" })
@@ -4143,8 +4871,7 @@
       });
 
       // 8. 自強不息黃金貓雕像 (History Island)
-      const pHis = islPos("history");
-      makeDeco("bld-statue", { x: pHis.x + 8.8, y: 1.85, z: pHis.z + 2.8 }, 0.78, (g) => {
+      makeIslandDeco("bld-statue", "history", 12.2, 3.6, 1.25, 0.78, (g) => {
         const goldMat = new THREE.MeshStandardMaterial({
           color: "#ffd32a",
           emissive: "#d97706",
@@ -4191,8 +4918,18 @@
         } else {
           const isl = this.islandsData.find((i) => i.id === item.islandId);
           if (!isl || !item.localPos) return;
-          wx = isl.position.x + item.localPos.x;
-          wz = isl.position.z + item.localPos.z;
+          const islIdx = Math.max(0, this.islandsData.indexOf(isl));
+          const occ = (this.islandOccupied && this.islandOccupied.get(isl.id)) || [];
+          const safe = this._findClearIslandSpot(
+            isl,
+            item.localPos.x,
+            item.localPos.z,
+            1.15,
+            (lx, lz) => this._evalIslandHeight(isl, lx, lz, islIdx * 1.7 + 0.4),
+            occ
+          );
+          wx = isl.position.x + safe.x;
+          wz = isl.position.z + safe.z;
           const surf = this._getSurfaceInfoAt(wx, wz, false);
           baseY = (surf.onWater ? 0.42 : surf.groundY) + 0.95;
           accentHex = (isl.colors && isl.colors.primary) || "#f59e0b";
@@ -4333,6 +5070,7 @@
 
     _buildLifeActivities(items) {
       const THREE = window.THREE;
+      const env = this._getEnvTextures();
       if (!this.activityStations) this.activityStations = new Map();
       this.activityStations.clear();
       if (!Array.isArray(items) || items.length === 0) return;
@@ -4354,8 +5092,17 @@
         } else if (item.localPos) {
           const isl = this.islandsData.find((i) => i.id === item.islandId);
           if (!isl) return;
-          wx = isl.position.x + item.localPos.x;
-          wz = isl.position.z + item.localPos.z;
+          if (item.type !== "fishing") {
+            const islIdx = Math.max(0, this.islandsData.indexOf(isl));
+            const occ = (this.islandOccupied && this.islandOccupied.get(isl.id)) || [];
+            const heightFn = (lx, lz) => this._evalIslandHeight(isl, lx, lz, islIdx * 1.7 + 0.4);
+            const clear = this._findClearIslandSpot(isl, item.localPos.x, item.localPos.z, 2.0, heightFn, occ, -0.45);
+            wx = isl.position.x + clear.x;
+            wz = isl.position.z + clear.z;
+          } else {
+            wx = isl.position.x + item.localPos.x;
+            wz = isl.position.z + item.localPos.z;
+          }
         } else {
           return;
         }
@@ -4390,7 +5137,7 @@
 
         const modelSlot = new THREE.Group();
         // 載入 3D GLB 前先顯示簡約彩色備援道具，確保點擊與辨識立即可用
-        const woodMat = new THREE.MeshStandardMaterial({ color: "#d99b52", roughness: 0.65 });
+        const woodMat = new THREE.MeshStandardMaterial({ color: "#ebd0ae", map: env.wood, roughness: 0.65 });
         const accentMat = new THREE.MeshStandardMaterial({ color: accent, roughness: 0.45 });
         if (item.type === "fishing") {
           const deck = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.14, 1.5), woodMat);
@@ -4655,57 +5402,92 @@
     /* ==================== 3F 原神／星鐵級島嶼雕塑地貌、聖殿中軸與園區造景 ==================== */
     _buildIsland(island, islandIdx) {
       const THREE = window.THREE;
+      const env = this._getEnvTextures();
       const group = new THREE.Group();
       group.position.set(island.position.x, 0, island.position.z);
       const r = island.radius;
       const seed = islandIdx * 1.7 + 0.4;
+      const prof = this._getIslandProfile(island);
       const theme = this._getIslandTheme(island);
-      const env = this._getEnvTextures();
       const heightFn = (dx, dz) => this._evalIslandHeight(island, dx, dz, seed);
 
-      const alcoveSlots = this._getIslandAlcoveSlots();
-      const activeCount = Math.min(island.nodes ? island.nodes.length : 4, alcoveSlots.length);
-      const alcovesVecs = alcoveSlots.slice(0, activeCount).map((s) => new THREE.Vector3(s.x, s.z, 1.72));
+      if (!this.islandOccupied) this.islandOccupied = new Map();
+      const occ = [];
+      this.islandOccupied.set(island.id, occ);
 
-      // 自然雕塑地形網格 + 無縫 Painterly 地貌 Shader
+      // 預先保留中軸牌坊、郵筒、瀑布與公民城牆區域，讓後續學習亭與道具精準閃避
+      occ.push({ x: -3.55, z: prof.gateZ, r: 0.95 }, { x: 3.55, z: prof.gateZ, r: 0.95 });
+      (island.nodes || []).forEach((_, idx) => {
+        const side = idx % 2 === 0 ? -1 : 1;
+        occ.push({ x: side * 3.55, z: 8.4 - Math.floor(idx / 2) * 3.4, r: 0.72 });
+      });
+      occ.push({ x: 9.6, z: -5.2, r: 1.8 });
+      if (island.id === "civics") {
+        occ.push({ x: -7.2, z: 11.8, r: 2.0 }, { x: 7.2, z: 11.8, r: 2.0 });
+      }
+
+      const resolvedAlcoves = this._resolveIslandAlcoves(island, heightFn, occ);
+      const alcovesVecs = resolvedAlcoves.map((s) => new THREE.Vector3(s.x, s.z, 1.72));
+
+      // 自然雕塑地形網格 + 一島一世界 Painterly 地貌 Shader
       const terrainMat = this._createTerrainShaderMat(theme, {
         isHub: false,
         biomeMode: island.id === "geography" ? 1.0 : 0.0,
+        islandStyle: prof.styleCode,
+        aveMaxZ: prof.aveMaxZ,
         accentColor: island.colors.primary,
+        cliffLight: prof.cliffLight,
+        cliffDark: prof.cliffDark,
+        stoneLight: prof.stoneLight,
+        stoneDark: prof.stoneDark,
         alcoves: alcovesVecs
       });
-      const terrainMesh = this._createSculptedTerrainMesh(r * 1.07, heightFn, terrainMat, 68, 34);
+      const terrainMesh = this._createSculptedTerrainMesh(r * prof.outerScale, heightFn, terrainMat, 104, 60);
       terrainMesh.userData = { islandId: island.id };
       group.add(terrainMesh);
       this.clickTargets.push(terrainMesh);
 
-      // 聖殿高台雕花石欄緣邊（讓建築與高台無縫咬合）
-      const curbMat = this._makeToonMat({ color: "#eadbc6" }, true);
-      const sanctCurb = new THREE.Mesh(new THREE.TorusGeometry(6.85, 0.16, 8, 44), curbMat);
+      // 聖殿高台雕花石欄緣邊（南向樓梯口留白開口式馬蹄鐵護欄 ＋ 雙側端柱）
+      const curbMat = this._makeToonMat({ color: prof.stoneLight || "#efe4d2", map: env.plaza }, true);
+      const curbGeo = new THREE.TorusGeometry(9.0, 0.18, 8, 52, Math.PI * 2 - 0.68);
+      curbGeo.rotateZ(Math.PI / 2 + 0.34);
+      const sanctCurb = new THREE.Mesh(curbGeo, curbMat);
       sanctCurb.rotation.x = Math.PI / 2;
-      sanctCurb.position.set(0, 2.48, -5.5);
-      sanctCurb.scale.set(1.02, 0.84, 0.65);
+      sanctCurb.position.set(0, prof.sanctY, -7.8);
+      sanctCurb.scale.set(1.04, 0.84, 0.65);
       group.add(sanctCurb);
+      [-3.12, 3.12].forEach((bx) => {
+        const bollard = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.30, 0.68, 10), curbMat);
+        bollard.position.set(bx, prof.sanctY + 0.32, -0.66);
+        bollard.castShadow = true;
+        group.add(bollard);
+      });
 
-      // 主建築聖殿碰撞圈（可走到大石階與聖殿正門口）
-      this._addCircleCollider(island.position.x, island.position.z - 5.5, 4.35, 12.5);
+      // 主建築聖殿碰撞箱（載入自訂 GLB 後會以精準包圍盒取代）
+      this._addBoxCollider(island.position.x, island.position.z - 7.8, 5.2, 3.4, 0, prof.sanctY + 11.0, null, "landmark_" + island.id);
 
-      // 3D 隨風搖曳動漫草海
-      this._buildInstancedMeadowGrass(group, island, seed, false, 680, heightFn, theme, alcovesVecs);
+      // 延後至全島建築與生活站點定位完成後再種草，徹底避免草葉穿模
+      if (!this.islandGrassConfigs) this.islandGrassConfigs = [];
+      this.islandGrassConfigs.push({ group, island, seed, heightFn, theme, alcovesVecs });
+
+      // 一島一世界專屬地形造景（山嶺岩峰／珊瑚礁與木棧道／海中鳥居＆千本鳥居／桂林奇峰與九曲橋／海蝕拱門／雙層港城海牆）
+      this._buildIslandBespokeGeo(group, island, heightFn, prof, occ);
 
       // 主題專屬南側中軸迎賓牌坊 / 拱門
-      this._buildIslandWelcomeGate(group, island, theme);
+      this._buildIslandWelcomeGate(group, island, theme, heightFn, prof, occ);
 
-      // 東側崖壁飛瀑流水
-      this._buildWaterfall(group, 6.2, -3.2);
+      // 東側崖壁飛瀑流水（位置已於前置清單登錄）
+      this._buildWaterfall(group, 9.6, -5.2, prof.sanctY + 0.08, prof.platY - 0.04);
 
-      // 中軸寬闊迎賓大石階（2F 草坪 -> 3F 主聖殿高台）
-      this._buildHillStairs(group, island);
+      // 中軸寬闊迎賓大石階（上層台地 -> 主聖殿高台）
+      this._buildHillStairs(group, island, prof);
 
-      // 南側迎賓廣場左右兩翼：自強進度榜 ＆ 校園長椅
+      // 南側迎賓廣場左右兩翼：自強進度榜 ＆ 校園長椅（自動避讓＋對齊平台高度）
+      const wingZ = island.id === "english" ? 16.4 : island.id === "civics" ? 11.4 : 13.8;
+      const wingMinOff = island.id === "english" ? -2.0 : -0.55;
+      const bSpot = this._findClearIslandSpot(island, -6.2, wingZ, 1.35, heightFn, occ, wingMinOff);
       const islBoard = this._buildCampusBulletinBoard(island.id, `🏫 ${island.name} · 進度榜`, island.colors.primary);
-      const bY = heightFn(-4.4, 11.2);
-      islBoard.position.set(-4.4, bY, 11.2);
+      islBoard.position.set(bSpot.x, bSpot.y, bSpot.z);
       islBoard.rotation.y = 0.42;
       islBoard.traverse((c) => {
         if (c.isMesh) {
@@ -4714,63 +5496,33 @@
         }
       });
       group.add(islBoard);
-      this._addBoxCollider(island.position.x - 4.4, island.position.z + 11.2, 0.92, 0.34, 0.42, 4.0);
+      this._addBoxCollider(island.position.x + bSpot.x, island.position.z + bSpot.z, 0.92, 0.34, 0.42, bSpot.y + 2.8);
 
+      const benchSpot = this._findClearIslandSpot(island, 6.2, wingZ, 1.25, heightFn, occ, wingMinOff);
       const bench = this._buildCampusBench();
-      bench.position.set(4.4, heightFn(4.4, 11.2), 11.2);
+      bench.position.set(benchSpot.x, benchSpot.y, benchSpot.z);
       bench.rotation.y = -0.42;
       group.add(bench);
-      this._addCircleCollider(island.position.x + 4.4, island.position.z + 11.2, 0.58, 2.8);
-
-      // 南側木造棧橋碼頭
-      const dockMat = this._makeToonMat({
-        color: "#e6b88a",
-        map: env.wood
-      });
-      const dock = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.18, 2.8), dockMat);
-      dock.position.set(0, 0.46, r * 0.99);
-      dock.castShadow = true;
-      group.add(dock);
+      this._addCircleCollider(island.position.x + benchSpot.x, island.position.z + benchSpot.z, 0.58, benchSpot.y + 2.2);
 
       // Cozy 西側林蔭主題小屋
-      this._buildSubjectCottage(group, island, heightFn);
+      this._buildSubjectCottage(group, island, heightFn, occ);
 
       // 東側庭園知識寶箱
-      this._buildTreasureChest(group, island, heightFn);
-
-      // SVG 海岸輕柔浪花圈
-      const shoreTex = this._createShoreSvgTexture(island.colors.accent || "#e0f7ff");
-      const shorePlaneMat = this._disableOutline(
-        new THREE.MeshBasicMaterial({
-          map: shoreTex,
-          transparent: true,
-          opacity: 0.65,
-          depthWrite: false
-        })
-      );
-      const shorePlane = new THREE.Mesh(
-        new THREE.PlaneGeometry(r * 2.52, r * 2.52),
-        shorePlaneMat
-      );
-      shorePlane.rotation.x = -Math.PI / 2;
-      shorePlane.position.y = -0.18;
-      group.add(shorePlane);
-      this.ambientUpdaters.push((t) => {
-        shorePlane.rotation.z = t * 0.08 * (islandIdx % 2 === 0 ? 1 : -1);
-      });
+      this._buildTreasureChest(group, island, heightFn, occ);
 
       // 外圍錯落主題森林與青苔岩群
-      this._buildClusteredForest(group, island, r, seed, heightFn);
+      this._buildClusteredForest(group, island, r, seed, heightFn, occ);
 
       // 中軸聖殿主建築備援 3D 地標 ＆ 光影氛圍特效
-      const lmRef = this._buildLandmark(group, island);
+      const lmRef = this._buildLandmark(group, island, prof);
       this._buildIslandSpecialFX(group, island, lmRef);
 
       // 進度成長階段造景
-      this._buildIslandGrowthProps(group, island, r, seed, heightFn);
+      this._buildIslandGrowthProps(group, island, r, seed, heightFn, prof, occ);
 
       // 東北海岬燈塔
-      this._buildLighthouse(group, island, heightFn);
+      this._buildLighthouse(group, island, heightFn, occ);
 
       // 迎賓大道旁迎接學生的高精守護貓
       if (island.guardianCat) {
@@ -4778,8 +5530,8 @@
           islandId: island.id,
           isCat: true
         });
-        const cy = heightFn(3.1, 6.4);
-        const catPos = new THREE.Vector3(3.1, cy, 6.4);
+        const catSpot = this._findClearIslandSpot(island, 5.8, 8.2, 1.15, heightFn, occ, -0.45);
+        const catPos = new THREE.Vector3(catSpot.x, catSpot.y, catSpot.z);
         catObj.group.position.copy(catPos);
         group.add(catObj.group);
         this.islandCats.set(island.id, {
@@ -4788,106 +5540,581 @@
           jumpTime: 0,
           phase: Math.random() * Math.PI * 2
         });
-        this._addCircleCollider(island.position.x + 3.1, island.position.z + 6.4, 0.62, 3.8);
+        this._addCircleCollider(island.position.x + catSpot.x, island.position.z + catSpot.z, 0.62, catSpot.y + 2.8);
       }
 
       // 庭院學習錨點群 ＆ 大道信箱遇點
-      this._buildWalkingPath(group, island, r, seed, heightFn);
+      this._buildWalkingPath(group, island, r, seed, heightFn, resolvedAlcoves, occ);
 
       this.scene.add(group);
       this.islandGroups.set(island.id, group);
     }
 
-    _buildIslandWelcomeGate(group, island, theme) {
+    _buildAllIslandMeadowGrass() {
+      (this.islandGrassConfigs || []).forEach((cfg) => {
+        const occ = (this.islandOccupied && this.islandOccupied.get(cfg.island.id)) || [];
+        this._buildInstancedMeadowGrass(
+          cfg.group,
+          cfg.island,
+          cfg.seed,
+          false,
+          1250,
+          cfg.heightFn,
+          cfg.theme,
+          cfg.alcovesVecs,
+          occ
+        );
+      });
+    }
+
+    _createSculptedRockGeo(radius, height, radialSegs = 12, heightSegs = 8, seed = 0) {
       const THREE = window.THREE;
+      const geo = new THREE.CylinderGeometry(radius * 0.16, radius, height, radialSegs, heightSegs);
+      const pos = geo && geo.attributes && geo.attributes.position;
+      if (pos && typeof pos.getX === "function") {
+        for (let i = 0; i < pos.count; i++) {
+          const x = pos.getX(i);
+          const y = pos.getY(i);
+          const z = pos.getZ(i);
+          const yn = Math.max(0, Math.min(1, (y + height * 0.5) / Math.max(height, 0.01)));
+          const ang = Math.atan2(z, x);
+          const radHoriz = Math.hypot(x, z);
+          if (radHoriz > 0.001) {
+            const ridge = 1.0 + 0.20 * Math.sin(ang * 3.0 + seed) + 0.12 * Math.cos(ang * 5.0 - seed * 1.7 + yn * 2.2);
+            const strata = 1.0 + 0.11 * Math.cos(yn * 9.5 + seed * 1.4) + 0.07 * Math.sin(yn * 16.0 + ang * 2.0);
+            const scaleR = ridge * strata * (1.0 - 0.18 * yn * yn);
+            const driftX = Math.sin(seed * 1.3) * radius * 0.14 * yn * yn;
+            const driftZ = Math.cos(seed * 2.1) * radius * 0.14 * yn * yn;
+            pos.setXYZ(i, x * scaleR + driftX, y, z * scaleR + driftZ);
+          }
+        }
+        geo.computeVertexNormals();
+      }
+      return geo;
+    }
+
+    _buildIslandBespokeGeo(group, island, heightFn, prof, occ = []) {
+      const THREE = window.THREE;
+      const env = this._getEnvTextures();
+      const stoneLightMat = this._makeToonMat({ color: "#f5ede0", map: env.plaza }, true);
+      const stoneDarkMat = this._makeToonMat({ color: "#b6a99a", map: env.cliffTile }, true);
+      const woodDeckMat = this._makeToonMat({ color: "#ecd2ae", map: env.wood }, true);
+      const foamMat = this._disableOutline(new THREE.MeshBasicMaterial({ color: "#ffffff", transparent: true, opacity: 0.72 }));
+
+      if (prof.style === "taiwan_mountain") {
+        // 台灣高山縱谷・清水斷崖：多層雕塑岩石火山尖峰 ＋ 中央主峰巖脊 ＋ 東側冰柱雪峰 ＋ 懸崖直墜海浪大瀑布
+        const darkCragMat = this._makeToonMat({ color: "#8d817a", map: env.cliffTile }, true);
+        const iceMat = this._makeToonMat({ color: "#bae6fd", emissive: "#0284c7", emissiveIntensity: 0.14 }, true);
+        const lavaMat = this._disableOutline(new THREE.MeshBasicMaterial({ color: "#ff784f" }));
+        this.nightGlowMaterials.push(lavaMat);
+
+        [
+          { x: -11.4, z: -18.8, r: 3.4, h: 6.2, type: "lava" },
+          { x: -6.8, z: -20.2, r: 2.8, h: 5.4, type: "lava" },
+          { x: 0.2, z: -22.0, r: 3.8, h: 6.8, type: "rock" },
+          { x: 9.2, z: -18.6, r: 3.2, h: 6.0, type: "ice" },
+          { x: 12.8, z: -16.4, r: 2.6, h: 5.0, type: "ice" }
+        ].forEach((pk, idx) => {
+          const gy = heightFn(pk.x, pk.z);
+          const crag = new THREE.Mesh(
+            this._createSculptedRockGeo(pk.r, pk.h, 12, 8, idx * 2.3 + 0.7),
+            pk.type === "ice" ? iceMat : darkCragMat
+          );
+          crag.position.set(pk.x, gy + pk.h * 0.35 - 0.6, pk.z);
+          crag.rotation.y = idx * 0.7;
+          crag.castShadow = true;
+          group.add(crag);
+          if (pk.type === "lava") {
+            const vein = new THREE.Mesh(new THREE.BoxGeometry(0.32, pk.h * 0.55, pk.r * 0.9), lavaMat);
+            vein.position.set(pk.x, gy + pk.h * 0.25, pk.z + pk.r * 0.28);
+            vein.rotation.x = 0.28;
+            group.add(vein);
+          }
+        });
+        // 東側清水斷崖飛瀑直墜入海
+        this._buildWaterfall(group, 14.8, 2.8, prof.platY + 0.15, -0.25);
+        if (Array.isArray(occ)) occ.push({ x: 14.8, z: 2.8, r: 1.8 });
+      } else if (prof.style === "barrier_reef") {
+        // 大堡礁珊瑚環礁：開放海域與雙側內灣彩色珊瑚礁群 ＋ 衛星珊瑚小島棕櫚 ＋ 西南過海木棧橋
+        const coralCols = ["#ff6b81", "#ff9f43", "#48dbfb", "#a29bfe", "#ffd32a"];
+        for (let i = 0; i < 44; i++) {
+          const a = (i / 44) * Math.PI * 2 + 0.18;
+          const rad = 15.2 + (i % 5) * 3.1;
+          const cx = Math.cos(a) * rad;
+          const cz = Math.sin(a) * rad;
+          const cy = heightFn(cx, cz);
+          if (cy > 0.18) continue;
+          const coral = new THREE.Mesh(
+            new THREE.DodecahedronGeometry(0.48 + (i % 3) * 0.2, 0),
+            this._makeToonMat({ color: coralCols[i % coralCols.length] }, true)
+          );
+          coral.position.set(cx, -0.22 + (i % 3) * 0.12, cz);
+          coral.scale.set(1.2, 0.9 + (i % 3) * 0.35, 1.1);
+          group.add(coral);
+        }
+        // 外海 4 座獨立衛星珊瑚小島熱帶棕櫚
+        const palmMat = this._makeToonMat({ color: "#34d399" }, true);
+        const trunkMat = this._makeToonMat({ color: "#c89b6e", map: env.wood }, true);
+        [
+          [-22.2, 15.2],
+          [22.6, 12.6],
+          [-23.8, -11.6],
+          [23.0, -13.0]
+        ].forEach(([ix, iz], idx) => {
+          const iy = heightFn(ix, iz);
+          const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.18, 1.65, 7), trunkMat);
+          trunk.position.set(ix, iy + 0.8, iz);
+          trunk.rotation.z = idx % 2 === 0 ? 0.14 : -0.14;
+          const crown = new THREE.Mesh(new THREE.DodecahedronGeometry(0.95, 1), palmMat);
+          crown.position.set(ix + (idx % 2 === 0 ? -0.14 : 0.14), iy + 1.72, iz);
+          crown.scale.set(1.25, 0.55, 1.25);
+          group.add(trunk, crown);
+        });
+        // 西南木棧橋連結主島 (-12.8, 8.0) -> 衛星珊瑚島 (-21.8, 14.8)
+        const bSteps = 12;
+        for (let bi = 0; bi <= bSteps; bi++) {
+          const bt = bi / bSteps;
+          const bx = -12.8 + (-21.8 + 12.8) * bt;
+          const bz = 8.0 + (14.8 - 8.0) * bt;
+          const by = heightFn(bx, bz);
+          const plank = new THREE.Mesh(new THREE.BoxGeometry(2.6, 0.14, 0.95), woodDeckMat);
+          plank.position.set(bx, by + 0.04, bz);
+          plank.lookAt(-22.2, by + 0.04, 15.2);
+          group.add(plank);
+        }
+      } else if (prof.style === "japan_shrine") {
+        // 日本瀨戶內／京都階梯海岬：海中大鳥居 ＋ 微翹紅漆千本鳥居參道 ＋ 石階踏面 ＋ 石燈籠
+        const toriiRedMat = this._makeToonMat({ color: "#e03c32", map: env.wood }, true);
+        const darkCapMat = this._makeToonMat({ color: "#231f20" }, true);
+        const lanternGlow = this._disableOutline(new THREE.MeshBasicMaterial({ color: "#fde68a" }));
+        this.nightGlowMaterials.push(lanternGlow);
+
+        const makeTorii = (tx, ty, tz, scale = 1.0, inWater = false) => {
+          const tg = new THREE.Group();
+          const h = 3.8 * scale;
+          const span = 1.9 * scale;
+          [-span, span].forEach((px) => {
+            const p = new THREE.Mesh(new THREE.CylinderGeometry(0.16 * scale, 0.21 * scale, h, 10), toriiRedMat);
+            p.position.set(px, h * 0.5, 0);
+            const base = new THREE.Mesh(new THREE.CylinderGeometry(0.24 * scale, 0.28 * scale, 0.42 * scale, 10), stoneDarkMat);
+            base.position.set(px, 0.2 * scale, 0);
+            tg.add(p, base);
+            if (inWater) {
+              const fm = new THREE.Mesh(new THREE.RingGeometry(0.32 * scale, 0.68 * scale, 14), foamMat);
+              fm.rotation.x = -Math.PI / 2;
+              fm.position.set(px, 0.24, 0);
+              tg.add(fm);
+            }
+          });
+          const kasagiMid = new THREE.Mesh(new THREE.BoxGeometry(span * 2.2, 0.22 * scale, 0.44 * scale), darkCapMat);
+          kasagiMid.position.y = h + 0.12 * scale;
+          [-1, 1].forEach((side) => {
+            const wing = new THREE.Mesh(new THREE.BoxGeometry(span * 0.65, 0.20 * scale, 0.42 * scale), darkCapMat);
+            wing.position.set(side * span * 1.32, h + 0.20 * scale, 0);
+            wing.rotation.z = side * 0.14;
+            tg.add(wing);
+          });
+          const shimagi = new THREE.Mesh(new THREE.BoxGeometry(span * 2.5, 0.20 * scale, 0.34 * scale), toriiRedMat);
+          shimagi.position.y = h - 0.08 * scale;
+          const nuki = new THREE.Mesh(new THREE.BoxGeometry(span * 2.35, 0.18 * scale, 0.24 * scale), toriiRedMat);
+          nuki.position.y = h - 0.72 * scale;
+          const strut = new THREE.Mesh(new THREE.BoxGeometry(0.22 * scale, 0.56 * scale, 0.22 * scale), toriiRedMat);
+          strut.position.y = h - 0.40 * scale;
+          tg.add(kasagiMid, shimagi, nuki, strut);
+          tg.position.set(tx, ty, tz);
+          group.add(tg);
+        };
+
+        // 東南海中大鳥居（立於海灣浪花之上）
+        makeTorii(11.4, -0.42, 24.4, 1.72, true);
+        // 中軸千本鳥居階梯參道（5 座連立沿坡攀升，與門柱區保留充裕間距）
+        [16.2, 15.3, 14.4, 13.5, 12.6].forEach((tz) => {
+          makeTorii(0, heightFn(0, tz), tz, 0.94, false);
+        });
+        // 僅於上下兩段攀升斜坡鋪設分階踏面
+        for (let s = 0; s < 10; s++) {
+          const tz = 15.8 - s * 0.52;
+          const stMesh = new THREE.Mesh(new THREE.BoxGeometry(4.6, 0.10, 0.34), stoneLightMat);
+          stMesh.position.set(0, heightFn(0, tz) - 0.01, tz);
+          group.add(stMesh);
+        }
+        for (let s = 0; s < 8; s++) {
+          const tz = 24.4 - s * 0.50;
+          const stMesh = new THREE.Mesh(new THREE.BoxGeometry(4.6, 0.10, 0.34), stoneLightMat);
+          stMesh.position.set(0, heightFn(0, tz) - 0.01, tz);
+          group.add(stMesh);
+        }
+        // 和風石燈籠
+        [-4.2, 4.2].forEach((lx) => {
+          const ly = heightFn(lx, 18.2);
+          const ped = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.26, 1.0, 8), stoneDarkMat);
+          ped.position.set(lx, ly + 0.5, 18.2);
+          const lbox = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.34, 0.42), lanternGlow);
+          lbox.position.set(lx, ly + 1.15, 18.2);
+          const lcap = new THREE.Mesh(new THREE.ConeGeometry(0.46, 0.32, 4), stoneDarkMat);
+          lcap.rotation.y = Math.PI / 4;
+          lcap.position.set(lx, ly + 1.46, 18.2);
+          group.add(ped, lbox, lcap);
+          if (Array.isArray(occ)) occ.push({ x: lx, z: 18.2, r: 0.95 });
+        });
+      } else if (prof.style === "guilin_karst") {
+        // 桂林山水峰林・新月半島：5 座雕塑層岩奇峰群 ＋ 東側彎月灣九曲紅橋
+        const karstMat = this._makeToonMat({ color: "#8ba69f", map: env.cliffTile }, true);
+        const karstShadeMat = this._makeToonMat({ color: "#68827c", map: env.cliffTile }, true);
+        const mossBaseMat = this._makeToonMat({ color: "#6ba37c", map: env.grass }, true);
+        [
+          [-17.4, -12.4, 3.2, 12.2],
+          [-10.2, -18.8, 3.8, 15.6],
+          [0.4, -20.8, 4.2, 17.8],
+          [10.4, -18.0, 3.4, 14.4],
+          [-18.6, -2.6, 2.8, 10.6]
+        ].forEach(([kx, kz, kr, kh], idx) => {
+          const ky = heightFn(kx, kz);
+          const spire = new THREE.Mesh(this._createSculptedRockGeo(kr, kh, 12, 8, idx * 2.3 + 0.4), karstMat);
+          spire.position.set(kx, ky + kh * 0.42 - 0.6, kz);
+          spire.rotation.y = idx * 0.7;
+          spire.castShadow = true;
+          const shoulder = new THREE.Mesh(
+            this._createSculptedRockGeo(kr * 0.72, kh * 0.68, 10, 6, idx * 3.1 + 1.2),
+            karstShadeMat
+          );
+          shoulder.position.set(kx + (idx % 2 === 0 ? kr * 0.48 : -kr * 0.48), ky + kh * 0.28 - 0.5, kz + 0.4);
+          shoulder.rotation.y = idx * 1.1;
+          const skirt = new THREE.Mesh(this._createSculptedRockGeo(kr * 1.15, kh * 0.26, 10, 4, idx * 1.7 + 2.0), mossBaseMat);
+          skirt.position.set(kx, ky + kh * 0.08 - 0.4, kz);
+          group.add(spire, shoulder, skirt);
+        });
+        // 東側靜水彎月灣九曲紅橋（木紋＋朱紅塗裝）
+        const redWoodMat = this._makeToonMat({ color: "#d6453a", map: env.wood }, true);
+        [
+          [13.0, -2.0, 0.35],
+          [15.4, 0.2, -0.45],
+          [16.8, 2.5, 0.42],
+          [14.8, 4.7, -0.35]
+        ].forEach(([bx, bz, ry]) => {
+          const seg = new THREE.Mesh(new THREE.BoxGeometry(1.25, 0.16, 2.75), redWoodMat);
+          seg.position.set(bx, 0.42, bz);
+          seg.rotation.y = ry;
+          const post = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.13, 1.0, 6), stoneDarkMat);
+          post.position.set(bx, 0.0, bz);
+          group.add(seg, post);
+        });
+      } else if (prof.style === "aegean_acropolis") {
+        // 愛琴海衛城白堊斷崖：東岸近岸白堊海蝕拱門 ＋ 崖邊大理石殘柱群 ＋ 連續斜坡白大理石南岬護欄 ＋ 漁夫岩棧
+        const chalkMat = this._makeToonMat({ color: "#f6f0e4", map: env.plaza }, true);
+        const railGlow = this._disableOutline(new THREE.MeshBasicMaterial({ color: "#fef08a" }));
+        this.nightGlowMaterials.push(railGlow);
+        const legL = new THREE.Mesh(new THREE.CylinderGeometry(0.95, 1.48, 5.4, 8), chalkMat);
+        legL.position.set(15.8, 1.8, 4.2);
+        const legR = new THREE.Mesh(new THREE.CylinderGeometry(0.9, 1.42, 5.4, 8), chalkMat);
+        legR.position.set(19.8, 1.8, 8.6);
+        const archSpan = new THREE.Mesh(new THREE.TorusGeometry(3.05, 0.95, 8, 20, Math.PI), chalkMat);
+        archSpan.position.set(17.8, 4.4, 6.4);
+        archSpan.rotation.y = -0.785;
+        group.add(legL, legR, archSpan);
+
+        // 斷崖上大理石殘柱群（自動避讓學習亭與大道道具）
+        [
+          [-10.4, 10.4, 3.8],
+          [10.4, 10.4, 3.4],
+          [-14.2, 1.6, 4.2]
+        ].forEach(([rx, rz, rh]) => {
+          const rSpot = this._findClearIslandSpot(island, rx, rz, 1.0, heightFn, occ, -0.5);
+          if (rSpot.noSpace) return;
+          const col = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.34, rh, 12), chalkMat);
+          col.position.set(rSpot.x, rSpot.y + rh * 0.5, rSpot.z);
+          col.castShadow = true;
+          group.add(col);
+        });
+        // 南岬拾級而上薄階踏面＋連續斜坡白大理石矮牆護欄與首尾燈柱
+        for (let s = 0; s < 14; s++) {
+          const tz = 22.6 - s * 0.74;
+          const stepM = new THREE.Mesh(new THREE.BoxGeometry(4.2, 0.10, 0.36), chalkMat);
+          stepM.position.set(0, heightFn(0, tz) - 0.01, tz);
+          group.add(stepM);
+        }
+        const hCapeStart = heightFn(2.32, 22.6);
+        const hCapeEnd = heightFn(2.32, 12.6);
+        const capeRailLen = Math.hypot(22.6 - 12.6, hCapeEnd - hCapeStart) + 0.45;
+        const capeRotX = Math.atan2(hCapeEnd - hCapeStart, 22.6 - 12.6);
+        [-2.32, 2.32].forEach((cx) => {
+          const railWall = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.48, capeRailLen), chalkMat);
+          railWall.position.set(cx, (hCapeStart + hCapeEnd) * 0.5 + 0.22, 17.6);
+          railWall.rotation.x = capeRotX;
+          railWall.castShadow = true;
+          group.add(railWall);
+
+          [22.8, 12.4].forEach((pz) => {
+            const py = heightFn(cx, pz);
+            const post = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.86, 0.42), chalkMat);
+            post.position.set(cx, py + 0.42, pz);
+            const orb = new THREE.Mesh(new THREE.SphereGeometry(0.15, 10, 10), railGlow);
+            orb.position.set(cx, py + 0.94, pz);
+            group.add(post, orb);
+          });
+        });
+        // 東南漁夫岩棧平台 (9.2, 22.0)
+        const dockMesh = new THREE.Mesh(new THREE.BoxGeometry(3.0, 0.22, 2.8), woodDeckMat);
+        dockMesh.position.set(9.2, 0.58, 22.0);
+        group.add(dockMesh);
+      } else {
+        // 公民社會島・雙層海港城邦半島：城垛與旗幟拱廊城牆 ＋ 雙側石造梯緣攀爬階梯 ＋ 防波堤與港市木貨箱
+        const citadelWallMat = this._makeToonMat({ color: "#ede4d4", map: env.plaza }, true);
+        const bannerClothMat = this._makeToonMat({ color: "#1d4ed8" }, true);
+        const bannerTrimMat = this._makeToonMat({ color: "#fbbf24" }, true);
+        [-7.2, 7.2].forEach((wx) => {
+          const wall = new THREE.Mesh(new THREE.BoxGeometry(6.0, 3.9, 1.45), citadelWallMat);
+          wall.position.set(wx, 3.05, 11.8);
+          wall.castShadow = true;
+          group.add(wall);
+          const coping = new THREE.Mesh(new THREE.BoxGeometry(6.2, 0.28, 1.68), stoneLightMat);
+          coping.position.set(wx, 5.15, 11.8);
+          group.add(coping);
+          // 頂端 5 座石砌城垛
+          for (let mi = 0; mi < 5; mi++) {
+            const merlon = new THREE.Mesh(new THREE.BoxGeometry(0.68, 0.44, 0.58), citadelWallMat);
+            merlon.position.set(wx - 2.3 + mi * 1.15, 5.51, 11.8);
+            merlon.castShadow = true;
+            group.add(merlon);
+          }
+          // 城牆南面臨港藍金垂掛旗幟
+          [-1.6, 1.6].forEach((bx) => {
+            const banner = new THREE.Mesh(new THREE.BoxGeometry(0.74, 1.65, 0.08), bannerClothMat);
+            banner.position.set(wx + bx, 3.65, 12.56);
+            const rod = new THREE.Mesh(new THREE.BoxGeometry(0.88, 0.11, 0.14), bannerTrimMat);
+            rod.position.set(wx + bx, 4.50, 12.56);
+            const hem = new THREE.Mesh(new THREE.BoxGeometry(0.74, 0.14, 0.10), bannerTrimMat);
+            hem.position.set(wx + bx, 2.86, 12.56);
+            group.add(banner, rod, hem);
+          });
+          this._addBoxCollider(island.position.x + wx, island.position.z + 11.8, 3.05, 0.8, 0, 5.2);
+        });
+        // 雙層港埠攀升石階踏面 (dx=0, dz = 17.2 -> 10.5) ＋ 連續斜坡石砌梯緣
+        for (let s = 0; s < 14; s++) {
+          const tz = 17.2 - s * 0.48;
+          const stMesh = new THREE.Mesh(new THREE.BoxGeometry(4.6, 0.12, 0.32), stoneLightMat);
+          stMesh.position.set(0, heightFn(0, tz) - 0.01, tz);
+          group.add(stMesh);
+        }
+        const strRotX = Math.atan2(5.0 - 1.3, 6.6);
+        [-2.55, 2.55].forEach((sx) => {
+          const stringer = new THREE.Mesh(new THREE.BoxGeometry(0.45, 0.55, 7.6), citadelWallMat);
+          stringer.position.set(sx, 3.25, 13.9);
+          stringer.rotation.x = strRotX;
+          stringer.castShadow = true;
+          group.add(stringer);
+        });
+        // 雙翼 L 型防波堤石墩燈柱與下層海港木質貨箱（閃開中央 spawnZ=18.8 通道）
+        [-6.4, 6.4].forEach((bx) => {
+          const post = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.56, 2.2, 10), citadelWallMat);
+          post.position.set(bx, 2.45, 25.3);
+          const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.28, 10, 10), this._disableOutline(new THREE.MeshBasicMaterial({ color: "#fef08a" })));
+          lamp.position.set(bx, 3.75, 25.3);
+          group.add(post, lamp);
+        });
+        const ironMat = this._makeToonMat({ color: "#475569" }, true);
+        [
+          { x: 4.8, y: 1.66, z: 18.6, w: 0.88, h: 0.72 },
+          { x: -4.8, y: 1.62, z: 18.4, w: 0.72, h: 0.62 }
+        ].forEach((cSpec) => {
+          const crate = new THREE.Mesh(new THREE.BoxGeometry(cSpec.w, cSpec.h, cSpec.w), woodDeckMat);
+          crate.position.set(cSpec.x, cSpec.y, cSpec.z);
+          crate.castShadow = true;
+          const trim = new THREE.Mesh(new THREE.BoxGeometry(cSpec.w + 0.05, 0.1, cSpec.w + 0.05), ironMat);
+          trim.position.set(cSpec.x, cSpec.y + cSpec.h * 0.25, cSpec.z);
+          group.add(crate, trim);
+          if (Array.isArray(occ)) occ.push({ x: cSpec.x, z: cSpec.z, r: 0.9 });
+        });
+      }
+    }
+
+    _createPlaqueTex(text, bgHex = "#7f1d1d", borderHex = "#f59e0b", textHex = "#fef3c7") {
+      const THREE = window.THREE;
+      const canvas = document.createElement("canvas");
+      canvas.width = 512;
+      canvas.height = 192;
+      const ctx = canvas.getContext("2d");
+      if (ctx) {
+        ctx.fillStyle = bgHex;
+        ctx.fillRect(0, 0, 512, 192);
+        ctx.strokeStyle = borderHex;
+        ctx.lineWidth = 14;
+        ctx.strokeRect(10, 10, 492, 172);
+        ctx.lineWidth = 4;
+        ctx.strokeRect(24, 24, 464, 144);
+        ctx.fillStyle = borderHex;
+        [
+          [32, 32],
+          [480, 32],
+          [32, 160],
+          [480, 160]
+        ].forEach(([cx, cy]) => {
+          ctx.beginPath();
+          ctx.arc(cx, cy, 8, 0, Math.PI * 2);
+          ctx.fill();
+        });
+        ctx.fillStyle = textHex;
+        ctx.font = 'bold 74px "PingFang TC", "Noto Serif TC", "Heiti TC", "Microsoft JhengHei", serif';
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(text || "", 256, 98);
+      }
+      const tex = new THREE.CanvasTexture(canvas);
+      tex.encoding = THREE.sRGBEncoding;
+      return tex;
+    }
+
+    _buildIslandWelcomeGate(group, island, theme, heightFn, prof, occ = []) {
+      const THREE = window.THREE;
+      const env = this._getEnvTextures();
+      const gateZ = (prof && prof.gateZ) || 11.4;
+      const gateY = heightFn ? heightFn(0, gateZ) : this._evalIslandHeight(island, 0, gateZ, 0);
       const gate = new THREE.Group();
-      gate.position.set(0, this._evalIslandHeight(island, 0, 9.2, 0), 9.2);
+      gate.position.set(0, gateY, gateZ);
 
       const primaryMat = this._makeToonMat({ color: island.colors.primary || "#d9534f" });
-      const stoneMat = this._makeToonMat({ color: "#ede2d0" });
-      const darkWoodMat = this._makeToonMat({ color: island.id === "chinese" ? "#3a1e18" : island.id === "listening" ? "#1e1b4b" : "#4b382a" });
+      const stoneMat = this._makeToonMat({ color: "#f4ece0", map: env.plaza });
+      const pearlMat = this._makeToonMat({ color: "#f2f6fc", map: env.plaza });
+      const darkWoodMat = this._makeToonMat({
+        color: island.id === "chinese" ? "#5c3329" : "#785a44",
+        map: env.wood
+      });
       const goldMat = this._makeToonMat({ color: "#ffd32a", emissive: "#d97706", emissiveIntensity: 0.22 });
       const glowMat = this._disableOutline(new THREE.MeshBasicMaterial({
         color: island.id === "listening" ? "#38bdf8" : "#fef08a"
       }));
       this.nightGlowMaterials.push(glowMat);
 
-      const spanX = 2.95;
-      const colH = 4.25;
+      const spanX = 3.55;
+      const colH = 4.55;
       [-spanX, spanX].forEach((px) => {
-        const plinth = new THREE.Mesh(new THREE.BoxGeometry(0.76, 0.45, 0.76), stoneMat);
+        const baseMat = island.id === "listening" ? pearlMat : stoneMat;
+        const plinth = new THREE.Mesh(new THREE.BoxGeometry(0.84, 0.45, 0.84), baseMat);
         plinth.position.set(px, 0.22, 0);
-        const pillarMat = island.id === "chinese" ? primaryMat : island.id === "civics" || island.id === "history" ? stoneMat : island.id === "listening" ? darkWoodMat : stoneMat;
-        const pillar = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.25, colH, 12), pillarMat);
+        const pillarMat = island.id === "chinese" ? primaryMat : island.id === "listening" ? pearlMat : stoneMat;
+        const pillar = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.27, colH, 12), pillarMat);
         pillar.position.set(px, 0.45 + colH * 0.5, 0);
         pillar.castShadow = true;
         gate.add(plinth, pillar);
 
         // 門柱暖光宮燈／壁燈
         const arm = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.08, 0.1), goldMat);
-        arm.position.set(px + (px < 0 ? 0.28 : -0.28), 3.1, 0);
+        arm.position.set(px + (px < 0 ? 0.28 : -0.28), 3.3, 0);
         const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.15, 10, 10), glowMat);
-        lamp.position.set(px + (px < 0 ? 0.42 : -0.42), 2.95, 0);
+        lamp.position.set(px + (px < 0 ? 0.42 : -0.42), 3.15, 0);
         gate.add(arm, lamp);
 
-        this._addCircleCollider(island.position.x + px, island.position.z + 9.2, 0.42, 6.0);
+        this._addCircleCollider(island.position.x + px, island.position.z + gateZ, 0.44, gateY + 6.0);
       });
 
+      const plaqueCfgMap = {
+        chinese: { text: "國文閣", bg: "#7f1d1d", border: "#f59e0b", txt: "#fef3c7" },
+        english: { text: "英文神社", bg: "#991b1b", border: "#fbbf24", txt: "#fffbeb" },
+        listening: { text: "星海聽音閣", bg: "#1e3a8a", border: "#38bdf8", txt: "#e0f2fe" },
+        geography: { text: "山海地理館", bg: "#78350f", border: "#f59e0b", txt: "#fef3c7" },
+        civics: { text: "公民雅典殿", bg: "#0f766e", border: "#fbbf24", txt: "#f0fdfa" },
+        history: { text: "歷史時光殿", bg: "#475569", border: "#fbbf24", txt: "#fefce8" }
+      };
+      const addPlaque = (py, pw = 2.05, ph = 0.72) => {
+        const cfg = plaqueCfgMap[island.id] || plaqueCfgMap.chinese;
+        const pTex = this._createPlaqueTex(cfg.text, cfg.bg, cfg.border, cfg.txt);
+        const frame = new THREE.Mesh(new THREE.BoxGeometry(pw + 0.14, ph + 0.12, 0.24), goldMat);
+        frame.position.set(0, py, 0);
+        const faceMat = this._makeToonMat({ color: "#ffffff", map: pTex });
+        const faceF = new THREE.Mesh(new THREE.PlaneGeometry(pw, ph), faceMat);
+        faceF.position.set(0, py, 0.13);
+        const faceB = new THREE.Mesh(new THREE.PlaneGeometry(pw, ph), faceMat);
+        faceB.rotation.y = Math.PI;
+        faceB.position.set(0, py, -0.13);
+        gate.add(frame, faceF, faceB);
+      };
+
       if (island.id === "chinese") {
-        // 中式飛簷牌坊橫梁與朱金匾額
-        const nuki = new THREE.Mesh(new THREE.BoxGeometry(spanX * 2 + 0.8, 0.22, 0.26), primaryMat);
-        nuki.position.y = colH + 0.2;
-        const eave = new THREE.Mesh(new THREE.BoxGeometry(spanX * 2 + 1.75, 0.24, 0.65), darkWoodMat);
-        eave.position.y = colH + 0.58;
-        const plaque = new THREE.Mesh(new THREE.BoxGeometry(1.3, 0.52, 0.28), goldMat);
-        plaque.position.y = colH + 0.22;
-        gate.add(nuki, eave, plaque);
+        // 中式重簷廡殿牌坊 ＋ 金頂脊飾 ＋ 書法題字牌匾
+        const nuki = new THREE.Mesh(new THREE.BoxGeometry(spanX * 2 + 0.85, 0.22, 0.26), primaryMat);
+        nuki.position.y = colH + 0.14;
+        const ridge = new THREE.Mesh(new THREE.BoxGeometry(spanX * 2 + 1.85, 0.22, 0.56), darkWoodMat);
+        ridge.position.y = colH + 0.62;
+        [-1, 1].forEach((side) => {
+          const wingEave = new THREE.Mesh(new THREE.BoxGeometry(spanX + 0.8, 0.18, 0.72), darkWoodMat);
+          wingEave.position.set(side * (spanX * 0.52), colH + 0.74, 0);
+          wingEave.rotation.z = side * 0.12;
+          const finial = new THREE.Mesh(new THREE.SphereGeometry(0.16, 10, 10), goldMat);
+          finial.position.set(side * (spanX + 0.92), colH + 0.96, 0);
+          gate.add(wingEave, finial);
+        });
+        gate.add(nuki, ridge);
+        addPlaque(colH + 0.14, 2.05, 0.72);
       } else if (island.id === "english") {
-        // 歐日融合花藝雙柱拱門＋蜂巢金飾
-        const arch = new THREE.Mesh(new THREE.TorusGeometry(spanX, 0.18, 10, 28, Math.PI), primaryMat);
-        arch.position.y = colH + 0.25;
-        const hexTop = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.42, 0.22, 6), goldMat);
-        hexTop.rotation.x = Math.PI / 2;
-        hexTop.position.y = colH + spanX + 0.35;
-        gate.add(arch, hexTop);
+        // 和風輕石門楣 ＋ 金色注連繩裝飾 ＋ 題字神社牌匾（位於千本鳥居後方，視覺井然有序）
+        const stoneBeam = new THREE.Mesh(new THREE.BoxGeometry(spanX * 2 + 0.9, 0.30, 0.42), stoneMat);
+        stoneBeam.position.y = colH + 0.20;
+        const rope = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.15, spanX * 2 + 0.3, 10), goldMat);
+        rope.rotation.z = Math.PI / 2;
+        rope.position.y = colH + 0.54;
+        const paperMat = this._makeToonMat({ color: "#ffffff" });
+        [-1.8, -0.9, 0.9, 1.8].forEach((sx) => {
+          const shide = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.32, 0.04), paperMat);
+          shide.position.set(sx, colH + 0.36, 0.18);
+          shide.rotation.z = sx < 0 ? 0.15 : -0.15;
+          gate.add(shide);
+        });
+        gate.add(stoneBeam, rope);
+        addPlaque(colH + 0.22, 2.15, 0.72);
       } else if (island.id === "listening") {
-        // 星鐵霓虹音波拱門
-        const bar = new THREE.Mesh(new THREE.BoxGeometry(spanX * 2 + 0.6, 0.26, 0.32), darkWoodMat);
-        bar.position.y = colH + 0.35;
-        const neonArc = new THREE.Mesh(new THREE.TorusGeometry(spanX * 0.85, 0.08, 8, 32, Math.PI), glowMat);
-        neonArc.position.y = colH + 0.35;
-        gate.add(bar, neonArc);
+        // 珍珠白大理石柱 ＋ 雙層發光藍金星海音波拱門 ＋ 「星海聽音閣」牌匾
+        const beam = new THREE.Mesh(new THREE.BoxGeometry(spanX * 2 + 0.75, 0.28, 0.38), pearlMat);
+        beam.position.y = colH + 0.24;
+        const neonArcOuter = new THREE.Mesh(new THREE.TorusGeometry(spanX * 0.88, 0.09, 8, 32, Math.PI), glowMat);
+        neonArcOuter.position.y = colH + 0.32;
+        const goldArcInner = new THREE.Mesh(new THREE.TorusGeometry(spanX * 0.58, 0.06, 8, 24, Math.PI), goldMat);
+        goldArcInner.position.y = colH + 0.32;
+        const crest = new THREE.Mesh(new THREE.OctahedronGeometry(0.28, 0), goldMat);
+        crest.position.y = colH + spanX * 0.88 + 0.46;
+        gate.add(beam, neonArcOuter, goldArcInner, crest);
+        addPlaque(colH + 0.24, 2.25, 0.72);
       } else if (island.id === "geography") {
-        // 探險石門＋中央金色羅盤徽章
-        const beam = new THREE.Mesh(new THREE.BoxGeometry(spanX * 2 + 1.0, 0.36, 0.44), darkWoodMat);
-        beam.position.y = colH + 0.4;
+        // 探險石木混構門楣 ＋ 削角石簷 ＋ 旋轉金色羅盤 ＋ 「山海地理館」牌匾
+        const beam = new THREE.Mesh(new THREE.BoxGeometry(spanX * 2 + 1.0, 0.34, 0.44), darkWoodMat);
+        beam.position.y = colH + 0.26;
+        const cap = new THREE.Mesh(new THREE.BoxGeometry(spanX * 2 + 1.35, 0.18, 0.58), stoneMat);
+        cap.position.y = colH + 0.54;
         const compass = new THREE.Mesh(new THREE.OctahedronGeometry(0.42, 0), goldMat);
-        compass.position.y = colH + 0.78;
-        gate.add(beam, compass);
+        compass.position.y = colH + 1.08;
+        this.ambientUpdaters.push((t) => { compass.rotation.y = t * 1.1; });
+        gate.add(beam, cap, compass);
+        addPlaque(colH + 0.26, 2.25, 0.72);
       } else {
-        // 歷史／公民古典石雕凱旋山牆拱門
-        const beam = new THREE.Mesh(new THREE.BoxGeometry(spanX * 2 + 0.85, 0.32, 0.44), stoneMat);
-        beam.position.y = colH + 0.36;
-        const arch = new THREE.Mesh(new THREE.TorusGeometry(spanX * 0.78, 0.15, 8, 28, Math.PI), goldMat);
-        arch.position.y = colH + 0.36;
+        // 歷史／公民古典大理石凱旋三角山牆拱門 ＋ 「公民雅典殿」／「歷史時光殿」牌匾
+        const beam = new THREE.Mesh(new THREE.BoxGeometry(spanX * 2 + 0.9, 0.32, 0.46), stoneMat);
+        beam.position.y = colH + 0.26;
+        [-1, 1].forEach((side) => {
+          const wing = new THREE.Mesh(new THREE.BoxGeometry(spanX + 0.7, 0.24, 0.54), stoneMat);
+          wing.position.set(side * (spanX * 0.48), colH + 0.82, 0);
+          wing.rotation.z = -side * 0.26;
+          gate.add(wing);
+        });
         const emblem = new THREE.Mesh(new THREE.OctahedronGeometry(0.32, 0), goldMat);
-        emblem.position.y = colH + 0.6;
-        gate.add(beam, arch, emblem);
+        emblem.position.y = colH + 1.48;
+        gate.add(beam, emblem);
+        addPlaque(colH + 0.26, 2.25, 0.72);
       }
 
       group.add(gate);
     }
 
-    _buildHillStairs(group, island) {
+    _buildHillStairs(group, island, prof) {
       const THREE = window.THREE;
+      const env = this._getEnvTextures();
       const stairGroup = new THREE.Group();
-      const stepCount = 8;
-      const startZ = 3.95;
-      const endZ = 0.45;
-      const startY = 1.84;
-      const endY = 2.48;
-      const stepMat = this._makeToonMat({ color: "#f3ead9" });
-      const railStoneMat = this._makeToonMat({ color: "#e5d7c1" });
+      const p = prof || this._getIslandProfile(island);
+      const stepCount = 14;
+      const startZ = 5.4;
+      const endZ = 1.6;
+      const startY = p.platY;
+      const endY = p.sanctY;
+      const stepMat = this._makeToonMat({ color: "#f5ede0", map: env.plaza });
+      const railStoneMat = this._makeToonMat({ color: "#eae0cf", map: env.plaza });
       const trimMat = this._makeToonMat({ color: island.colors.primary || "#8f2130" });
       const lanternGlow = this._disableOutline(new THREE.MeshBasicMaterial({ color: "#fef08a" }));
       this.nightGlowMaterials.push(lanternGlow);
@@ -4895,14 +6122,15 @@
       for (let i = 0; i < stepCount; i++) {
         const t = (i + 0.5) / stepCount;
         const stepH = 0.16;
-        const step = new THREE.Mesh(new THREE.BoxGeometry(4.1, stepH, 0.52), stepMat);
+        const step = new THREE.Mesh(new THREE.BoxGeometry(4.6, stepH, 0.42), stepMat);
         step.position.set(0, startY + t * (endY - startY) - stepH * 0.35, startZ + t * (endZ - startZ));
         step.receiveShadow = true;
         stairGroup.add(step);
       }
 
-      [-2.15, 2.15].forEach((rx) => {
-        const rail = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.38, 3.75), railStoneMat);
+      const railLen = Math.hypot(startZ - endZ, endY - startY) + 0.25;
+      [-2.42, 2.42].forEach((rx) => {
+        const rail = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.38, railLen), railStoneMat);
         rail.position.set(rx, (startY + endY) * 0.5 + 0.24, (startZ + endZ) * 0.5);
         rail.rotation.x = Math.atan2(endY - startY, startZ - endZ);
         stairGroup.add(rail);
@@ -4921,10 +6149,11 @@
       group.add(stairGroup);
     }
 
-    _buildWaterfall(group, x, z) {
+    _buildWaterfall(group, x, z, topY = 5.8, botY = 4.5) {
       const THREE = window.THREE;
       const wfGroup = new THREE.Group();
-      wfGroup.position.set(x, 1.88, z);
+      wfGroup.position.set(x, botY, z);
+      const dropH = Math.max(0.8, topY - botY);
 
       const streamMat = this._disableOutline(
         new THREE.MeshBasicMaterial({
@@ -4933,17 +6162,17 @@
           opacity: 0.76
         })
       );
-      const stream = new THREE.Mesh(new THREE.BoxGeometry(0.95, 1.05, 0.26), streamMat);
-      stream.position.y = 0.42;
+      const stream = new THREE.Mesh(new THREE.BoxGeometry(1.15, dropH + 0.25, 0.28), streamMat);
+      stream.position.y = dropH * 0.5;
       stream.rotation.y = -0.35;
-      stream.rotation.x = 0.28;
+      stream.rotation.x = 0.22;
       wfGroup.add(stream);
 
       const splashPool = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.95, 1.08, 0.12, 16),
+        new THREE.CylinderGeometry(1.05, 1.22, 0.14, 16),
         this._disableOutline(new THREE.MeshBasicMaterial({ color: "#bae6fd", transparent: true, opacity: 0.72 }))
       );
-      splashPool.position.set(0.15, -0.02, 0.3);
+      splashPool.position.set(0.15, 0.04, 0.32);
       wfGroup.add(splashPool);
 
       const foams = [];
@@ -4967,19 +6196,21 @@
       group.add(wfGroup);
     }
 
-    _buildSubjectCottage(group, island, heightFn) {
+    _buildSubjectCottage(group, island, heightFn, occ = []) {
       const THREE = window.THREE;
+      const env = this._getEnvTextures();
       const theme = this._getIslandTheme(island);
-      const hx = -11.4;
-      const hz = 5.4;
-      const hy = heightFn ? heightFn(hx, hz) : 1.84;
+      const spot = this._findClearIslandSpot(island, -14.8, 6.8, 2.45, heightFn, occ);
+      const hx = spot.x;
+      const hz = spot.z;
+      const hy = spot.y;
       const house = new THREE.Group();
       house.position.set(hx, hy, hz);
       house.rotation.y = 0.62;
 
       const patio = new THREE.Mesh(
         new THREE.CylinderGeometry(1.9, 2.05, 0.14, 16),
-        this._makeToonMat({ color: "#e8dcc8" }, true)
+        this._makeToonMat({ color: "#f4ece0", map: env.plaza }, true)
       );
       patio.position.y = 0.04;
       house.add(patio);
@@ -5057,20 +6288,22 @@
       });
       group.add(house);
       this.islandCottageSlots.push({ house, slot: visualSlot, island, winMat });
-      this._addBoxCollider(island.position.x + hx, island.position.z + hz, 1.05, 0.95, 0.62, 4.0);
+      this._addBoxCollider(island.position.x + hx, island.position.z + hz, 1.05, 0.95, 0.62, hy + 3.6);
     }
 
-    _buildTreasureChest(group, island, heightFn) {
+    _buildTreasureChest(group, island, heightFn, occ = []) {
       const THREE = window.THREE;
-      const cx = 11.6;
-      const cz = 1.8;
-      const cy = heightFn ? heightFn(cx, cz) : 1.84;
+      const env = this._getEnvTextures();
+      const cSpot = this._findClearIslandSpot(island, 15.2, 2.4, 1.45, heightFn, occ);
+      const cx = cSpot.x;
+      const cz = cSpot.z;
+      const cy = cSpot.y;
       const chestWrap = new THREE.Group();
       chestWrap.position.set(cx, cy, cz);
 
       const pedestal = new THREE.Mesh(
         new THREE.CylinderGeometry(0.75, 0.92, 0.18, 12),
-        this._makeToonMat({ color: "#e5d7c1" }, true)
+        this._makeToonMat({ color: "#f4ece0", map: env.plaza }, true)
       );
       pedestal.position.y = 0.08;
       chestWrap.add(pedestal);
@@ -5079,7 +6312,7 @@
       chest.position.y = 0.16;
       const box = new THREE.Mesh(
         new THREE.BoxGeometry(0.7, 0.48, 0.52),
-        this._makeToonMat({ color: "#a0522d" })
+        this._makeToonMat({ color: "#d68c59", map: env.wood })
       );
       box.position.y = 0.24;
       const trim = new THREE.Mesh(
@@ -5097,34 +6330,46 @@
       chestWrap.add(chest);
       group.add(chestWrap);
       this.islandChests.push({ chest, island });
-      this._addBoxCollider(island.position.x + cx, island.position.z + cz, 0.52, 0.44, 0, 2.8);
+      this._addBoxCollider(island.position.x + cx, island.position.z + cz, 0.52, 0.44, 0, cy + 2.4);
     }
 
-    _buildClusteredForest(group, island, r, seed, heightFn) {
+    _buildClusteredForest(group, island, r, seed, heightFn, occ = []) {
       const THREE = window.THREE;
+      const env = this._getEnvTextures();
+      const prof = this._getIslandProfile(island);
       const theme = this._getIslandTheme(island);
-      const trunkMat = this._makeToonMat({
-        color: theme.treeStyle === "crystal" ? "#64748b" : "#8d6346"
-      });
-      const rockMat = this._makeToonMat({ color: island.id === "geography" ? "#544845" : "#a3998b" });
+      const trunkMat = this._makeToonMat(
+        theme.treeStyle === "crystal"
+          ? { color: "#64748b" }
+          : { color: "#b5855e", map: env.wood }
+      );
+      const rockMat = this._makeToonMat({ color: island.id === "geography" ? "#8a7a75" : "#cfc4b4", map: env.cliffTile });
       const palette = theme.foliageColors || [island.colors.ground];
-      const alcoves = this._getIslandAlcoveSlots();
 
-      // 沿島嶼外圍草坡錯落配置林木，完整保留中軸大道與聖殿開闊視野
+      // 沿擴大島嶼外圍草坡錯落配置林木，透過 occupied 登錄與斜率檢查完全閃避建物與學習站
       const spots = [
-        [-12.6, 0.6],
-        [-12.0, -4.6],
-        [-9.2, -10.8],
-        [-4.2, -13.2],
-        [4.2, -13.2],
-        [8.6, -10.6],
-        [-9.6, 9.2],
-        [12.4, 5.8]
+        [-16.4, 0.8],
+        [-15.8, -6.2],
+        [-12.6, -14.6],
+        [-5.8, -17.6],
+        [5.8, -17.6],
+        [12.2, -14.4],
+        [-13.2, 12.0],
+        [16.2, 7.6],
+        [-16.6, -11.4],
+        [15.8, -6.4]
       ];
-      spots.forEach(([tx, tz], idx) => {
-        if (Math.hypot(tx / 7.6, (tz + 5.5) / 6.4) < 1.05) return;
-        for (let ai = 0; ai < alcoves.length; ai++) {
-          if (Math.hypot(tx - alcoves[ai].x, tz - alcoves[ai].z) < 2.6) return;
+      spots.forEach(([rawTx, rawTz], idx) => {
+        const safeTree = this._findClearIslandSpot(island, rawTx, rawTz, 1.55, heightFn, occ, -0.5);
+        if (safeTree.noSpace) return;
+        const tx = safeTree.x;
+        const tz = safeTree.z;
+        const treeSlope = heightFn
+          ? Math.abs(heightFn(tx + 0.5, tz) - heightFn(tx - 0.5, tz)) + Math.abs(heightFn(tx, tz + 0.5) - heightFn(tx, tz - 0.5))
+          : 0;
+        if (Math.hypot(tx / 10.6, (tz + 7.8) / 8.8) < 1.05 || safeTree.y < prof.platY - 0.5 || treeSlope > 0.72) {
+          if (Array.isArray(occ) && occ.length) occ.pop();
+          return;
         }
         const tree = new THREE.Group();
         const visualSlot = new THREE.Group();
@@ -5135,7 +6380,7 @@
         if (theme.treeStyle === "ice_lava" && idx < 3) {
           const rock = new THREE.Mesh(
             new THREE.DodecahedronGeometry(0.75, 0),
-            this._makeToonMat({ color: "#5c4d45" })
+            rockMat
           );
           rock.position.y = 0.42;
           rock.rotation.set(idx, idx * 0.6, 0);
@@ -5152,7 +6397,7 @@
           cone.position.y = 1.18;
           cone.castShadow = true;
           visualSlot.add(trunk, cone);
-          this.islandTreeSlots.push({ slot: visualSlot, isPine: true, tint: leafColor });
+          this.islandTreeSlots.push({ slot: visualSlot, isPine: false, tint: leafColor });
         } else if (theme.treeStyle === "ice_lava") {
           const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.17, 0.65, 8), trunkMat);
           trunk.position.y = 0.32;
@@ -5197,27 +6442,29 @@
         boulder.rotation.set(0.2, idx, 0.1);
         tree.add(visualSlot, boulder);
         tree.scale.setScalar(scale);
-        const ty = heightFn ? heightFn(tx, tz) - 0.04 : 1.78;
+        const ty = heightFn ? heightFn(tx, tz) - 0.04 : prof.platY - 0.04;
         tree.position.set(tx, ty, tz);
         group.add(tree);
-        this._addCircleCollider(island.position.x + tx, island.position.z + tz, 0.48 * scale, 4.0);
+        this._addCircleCollider(island.position.x + tx, island.position.z + tz, 0.48 * scale, ty + 3.2);
       });
     }
 
-    _buildWalkingPath(group, island, r, seed, heightFn) {
+    _buildWalkingPath(group, island, r, seed, heightFn, resolvedAlcoves, occ = []) {
       const THREE = window.THREE;
-      const alcoves = this._getIslandAlcoveSlots();
+      const env = this._getEnvTextures();
+      const prof = this._getIslandProfile(island);
+      const alcoves = resolvedAlcoves || this._resolveIslandAlcoves(island, heightFn, occ);
       const waypoints = [];
 
       island.nodes.forEach((node, idx) => {
         const slot = alcoves[idx % alcoves.length];
         const nx = slot.x;
         const nz = slot.z;
-        const ny = heightFn ? heightFn(nx, nz) : 1.84;
+        const ny = heightFn ? heightFn(nx, nz) : prof.platY;
         const nodeAngle = Math.atan2(nz, nx);
         this._buildNodeBeacon(group, island, node, nx, ny, nz, slot.face);
-        this._addCircleCollider(island.position.x + nx, island.position.z + nz, 0.64, 4.2);
-        waypoints.push({ x: nx, z: nz, angle: nodeAngle, nodeId: node.id, kind: "node" });
+        this._addCircleCollider(island.position.x + nx, island.position.z + nz, 0.64, ny + 3.0);
+        waypoints.push({ x: nx, z: nz, angle: nodeAngle, face: slot.face, nodeId: node.id, kind: "node" });
         this.interactableSpots.push({
           type: "node",
           kind: "node",
@@ -5228,16 +6475,38 @@
           z: island.position.z + nz
         });
 
-        // 遇點郵筒整齊配置於中軸大道兩側，貼地成排
+        // 遇點郵筒整齊配置於擴大中軸大道兩側，穿插陶盆小花增添大道律動（位置已於前置清單登錄）
         const side = idx % 2 === 0 ? -1 : 1;
-        const ex = side * 2.55;
-        const ez = 7.4 - Math.floor(idx / 2) * 3.1;
-        const ey = heightFn ? heightFn(ex, ez) : 1.84;
+        const ex = side * 3.55;
+        const ez = 8.4 - Math.floor(idx / 2) * 3.4;
+        const ey = heightFn ? heightFn(ex, ez) : prof.platY;
+        if (idx % 2 === 0) {
+          const potX = ex + side * 0.62;
+          const potZ = ez + 0.32;
+          const potY = heightFn ? heightFn(potX, potZ) : ey;
+          const pot = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.18, 0.13, 0.24, 8),
+            this._makeToonMat({ color: "#c26d48", map: env.cliffTile }, true)
+          );
+          pot.position.set(potX, potY + 0.12, potZ);
+          const bush = new THREE.Mesh(
+            new THREE.DodecahedronGeometry(0.22, 0),
+            this._makeToonMat({ color: "#5fa862" })
+          );
+          bush.position.set(potX, potY + 0.30, potZ);
+          const bloomCol = (island.colors && island.colors.primary) || "#f472b6";
+          const bloom = new THREE.Mesh(
+            new THREE.SphereGeometry(0.08, 7, 7),
+            this._makeToonMat({ color: bloomCol })
+          );
+          bloom.position.set(potX + 0.04, potY + 0.44, potZ);
+          group.add(pot, bush, bloom);
+        }
         const mailbox = new THREE.Group();
         mailbox.position.set(ex, ey, ez);
         const mPad = new THREE.Mesh(
           new THREE.CylinderGeometry(0.42, 0.48, 0.1, 10),
-          this._makeToonMat({ color: "#e5d7c1" }, true)
+          this._makeToonMat({ color: "#f4ece0", map: env.plaza }, true)
         );
         mPad.position.y = 0.04;
         const mPost = new THREE.Mesh(
@@ -5264,14 +6533,15 @@
           }
         });
         group.add(mailbox);
+        const encFace = side < 0 ? Math.PI * 0.42 : -Math.PI * 0.42;
         this.encounterMailboxes.push({
           mailbox,
           islandId: island.id,
           nodeId: node.id,
-          rotY: side < 0 ? Math.PI * 0.42 : -Math.PI * 0.42
+          rotY: encFace
         });
 
-        waypoints.push({ x: ex, z: ez, angle: Math.atan2(ez, ex), nodeId: node.id, kind: "encounter" });
+        waypoints.push({ x: ex, z: ez, angle: Math.atan2(ez, ex), face: encFace, nodeId: node.id, kind: "encounter" });
         this.interactableSpots.push({
           type: "node",
           kind: "encounter",
@@ -5286,10 +6556,11 @@
       this.islandPaths.set(island.id, { radius: r * 0.45, waypoints });
     }
 
-    _buildLandmark(group, island) {
+    _buildLandmark(group, island, prof) {
       const THREE = window.THREE;
+      const p = prof || this._getIslandProfile(island);
       const lmGroup = new THREE.Group();
-      lmGroup.position.set(0, 2.46, -5.5); // 置中於北側聖殿高台（未載入 GLB 時之備援地標）
+      lmGroup.position.set(0, p.sanctY - 0.02, -7.8); // 置中於北側聖殿高台（未載入 GLB 時之備援地標）
       lmGroup.scale.setScalar(1.65);
 
       const theme = this._getIslandTheme(island);
@@ -5753,11 +7024,11 @@
       }
     }
 
-    _buildIslandGrowthProps(group, island, r, seed, heightFn) {
+    _buildIslandGrowthProps(group, island, r, seed, heightFn, prof, occ = []) {
       const THREE = window.THREE;
+      const p = prof || this._getIslandProfile(island);
       const growthRoot = new THREE.Group();
       const theme = this._getIslandTheme(island);
-      const alcoves = this._getIslandAlcoveSlots();
 
       // Stage 1 (>=33%): 低矮貼地花叢與飛舞粉彩蝴蝶
       const stage1 = new THREE.Group();
@@ -5769,25 +7040,26 @@
         const rad = r * (0.44 + (i % 3) * 0.1);
         const fx = Math.cos(ang) * rad;
         const fz = Math.sin(ang) * rad;
-        if (Math.abs(fx) < 2.8 && fz > -4.5) continue;
-        if (Math.hypot(fx / 7.8, (fz + 5.5) / 6.5) < 1.02) continue;
-        let nearAlcove = false;
-        for (let ai = 0; ai < alcoves.length; ai++) {
-          if (Math.hypot(fx - alcoves[ai].x, fz - alcoves[ai].z) < 2.2) { nearAlcove = true; break; }
+        if (Math.abs(fx) < 3.6 && fz > -5.5) continue;
+        if (Math.hypot(fx / 10.6, (fz + 7.8) / 8.8) < 1.02) continue;
+        let blocked = false;
+        for (let oi = 0; oi < occ.length; oi++) {
+          if (Math.hypot(fx - occ[oi].x, fz - occ[oi].z) < occ[oi].r + 0.85) { blocked = true; break; }
         }
-        if (nearAlcove) continue;
+        if (blocked) continue;
+        const fy = heightFn ? heightFn(fx, fz) : p.platY;
+        if (fy < p.platY - 0.5) continue;
         const fl = new THREE.Group();
         const leaf = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.28, 0.06, 7), stemMat);
         leaf.position.y = 0.03;
         const petalMat = this._makeToonMat({ color: bloomCols[i % bloomCols.length] });
-        for (let p = 0; p < 3; p++) {
-          const pa = (p / 3) * Math.PI * 2;
+        for (let pt = 0; pt < 3; pt++) {
+          const pa = (pt / 3) * Math.PI * 2;
           const blossom = new THREE.Mesh(new THREE.DodecahedronGeometry(0.11, 0), petalMat);
           blossom.position.set(Math.cos(pa) * 0.12, 0.12, Math.sin(pa) * 0.12);
           fl.add(blossom);
         }
         fl.add(leaf);
-        const fy = heightFn ? heightFn(fx, fz) : 1.84;
         fl.position.set(fx, fy, fz);
         stage1.add(fl);
       }
@@ -5807,7 +7079,7 @@
         if (!stage1.visible) return;
         butterflies.forEach((entry, idx) => {
           const a = t * 0.85 + entry.ph;
-          entry.bf.position.set(Math.cos(a) * (4.0 + idx * 1.5), 2.95 + Math.sin(t * 2.6 + entry.ph) * 0.35, Math.sin(a) * (4.0 + idx * 1.5));
+          entry.bf.position.set(Math.cos(a) * (4.0 + idx * 1.5), p.platY + 1.25 + Math.sin(t * 2.6 + entry.ph) * 0.35, Math.sin(a) * (4.0 + idx * 1.5));
           entry.bf.rotation.y = -a;
           const flap = Math.sin(t * 14 + entry.ph) * 0.75;
           entry.wL.rotation.y = flap;
@@ -5820,10 +7092,19 @@
       stage2.visible = false;
       const postMat = this._makeToonMat({ color: "#8d6346" });
       [
-        [-2.7, 7.0], [2.7, 7.0],
-        [-2.7, 2.2], [2.7, 2.2],
-        [-6.6, 4.2], [7.2, 4.2]
-      ].forEach(([lx, lz]) => {
+        [-3.3, 9.2], [3.3, 9.2],
+        [-3.3, 4.4], [3.3, 4.4],
+        [-8.8, 5.4], [9.2, 5.4]
+      ].forEach(([rawLx, rawLz], idx) => {
+        let lx = rawLx;
+        let lz = rawLz;
+        let ly = heightFn ? heightFn(lx, lz) : p.platY;
+        if (idx >= 4) {
+          const spot = this._findClearIslandSpot(island, rawLx, rawLz, 0.75, heightFn, occ, -0.45);
+          lx = spot.x;
+          lz = spot.z;
+          ly = spot.y;
+        }
         const lantern = new THREE.Group();
         const post = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.07, 1.25, 8), postMat);
         post.position.y = 0.62;
@@ -5832,7 +7113,6 @@
         const orb = new THREE.Mesh(new THREE.SphereGeometry(0.18, 10, 10), glowMat);
         orb.position.y = 1.32;
         lantern.add(post, orb);
-        const ly = heightFn ? heightFn(lx, lz) : 1.84;
         lantern.position.set(lx, ly, lz);
         stage2.add(lantern);
       });
@@ -5841,21 +7121,21 @@
       const stage3 = new THREE.Group();
       stage3.visible = false;
       const archPillarMat = this._makeToonMat({ color: island.colors.primary || "#e07a5f" });
-      [-2.25, 2.25].forEach((ax) => {
+      [-2.55, 2.55].forEach((ax) => {
         const col = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.13, 3.2, 10), archPillarMat);
-        col.position.set(ax, 2.48 + 1.6, 0.65);
+        col.position.set(ax, p.sanctY + 1.6, 1.6);
         stage3.add(col);
       });
-      const beam = new THREE.Mesh(new THREE.BoxGeometry(4.9, 0.24, 0.24), this._makeToonMat({ color: "#ffd32a" }));
-      beam.position.set(0, 5.75, 0.65);
+      const beam = new THREE.Mesh(new THREE.BoxGeometry(5.5, 0.24, 0.24), this._makeToonMat({ color: "#ffd32a" }));
+      beam.position.set(0, p.sanctY + 3.27, 1.6);
       stage3.add(beam);
-      for (let p = 0; p < 7; p++) {
+      for (let pn = 0; pn < 7; pn++) {
         const pen = new THREE.Mesh(
           new THREE.ConeGeometry(0.18, 0.38, 4),
-          this._makeToonMat({ color: p % 2 === 0 ? "#ff8ab4" : "#38bdf8" })
+          this._makeToonMat({ color: pn % 2 === 0 ? "#ff8ab4" : "#38bdf8" })
         );
         pen.rotation.x = Math.PI;
-        pen.position.set(-1.65 + p * 0.55, 5.48, 0.65);
+        pen.position.set(-1.65 + pn * 0.55, p.sanctY + 3.0, 1.6);
         stage3.add(pen);
       }
 
@@ -5864,17 +7144,19 @@
       this.islandGrowthGroups.set(island.id, { stage1, stage2, stage3 });
     }
 
-    _buildLighthouse(group, island, heightFn) {
+    _buildLighthouse(group, island, heightFn, occ = []) {
       const THREE = window.THREE;
-      const lx = 11.2;
-      const lz = -6.6;
-      const ly = heightFn ? heightFn(lx, lz) : 1.84;
+      const env = this._getEnvTextures();
+      const lSpot = this._findClearIslandSpot(island, 15.2, -9.2, 1.85, heightFn, occ);
+      const lx = lSpot.x;
+      const lz = lSpot.z;
+      const ly = lSpot.y;
       const lhGroup = new THREE.Group();
       lhGroup.position.set(lx, ly, lz);
 
       const plinth = new THREE.Mesh(
         new THREE.CylinderGeometry(1.18, 1.38, 0.16, 14),
-        this._makeToonMat({ color: "#e6dac6" }, true)
+        this._makeToonMat({ color: "#f4ece0", map: env.plaza }, true)
       );
       plinth.position.y = 0.06;
       lhGroup.add(plinth);
@@ -5936,20 +7218,21 @@
       group.add(lhGroup);
       this.lighthouseMeshes.set(island.id, { beam, bulb });
       this.islandLighthouseSlots.push({ lhGroup, slot: visualSlot, island });
-      this._addCircleCollider(island.position.x + lx, island.position.z + lz, 0.88, 5.8);
+      this._addCircleCollider(island.position.x + lx, island.position.z + lz, 0.88, ly + 5.8);
     }
 
     _buildNodeBeacon(group, island, node, x, y, z, faceRotY = 0) {
       const THREE = window.THREE;
+      const env = this._getEnvTextures();
       const islandId = island.id;
       const accentHex = (island.colors && island.colors.primary) || "#f59e0b";
       const nodeGroup = new THREE.Group();
       nodeGroup.position.set(x, y, z);
       nodeGroup.rotation.y = faceRotY || 0;
 
-      // 原神／星鐵風：雙層圓石庭院台基 ＋ 符文金邊環
-      const stoneMat = this._makeToonMat({ color: "#efe4d2" }, true);
-      const wallStoneMat = this._makeToonMat({ color: "#d9ccb6" }, true);
+      // 原神／星鐵風：雙層圓石庭院台基 ＋ 符文金邊環（手繪石磚 + 手繪岩壁材質）
+      const stoneMat = this._makeToonMat({ color: "#f5ede0", map: env.plaza }, true);
+      const wallStoneMat = this._makeToonMat({ color: "#e2d5c1", map: env.cliffTile }, true);
       const trimMat = this._makeToonMat({ color: accentHex }, true);
 
       const terrace = new THREE.Mesh(new THREE.CylinderGeometry(1.42, 1.56, 0.14, 24), stoneMat);
@@ -6856,18 +8139,20 @@
     }
 
     _getBridgeCoord(x, z, island) {
-      const ix = island.position.x;
-      const iz = island.position.z;
-      const len = Math.hypot(ix, iz) || 1;
-      const dxAxis = ix / len;
-      const dzAxis = iz / len;
-      const startDist = 11.1;
-      const endDist = len - island.radius * 0.84;
-      const proj = x * dxAxis + z * dzAxis;
-      const signedPerp = -x * dzAxis + z * dxAxis;
-      const t = Math.max(0, Math.min(1, (proj - startDist) / Math.max(endDist - startDist, 0.01)));
-      const bridgeY = 1.15 + Math.sin(t * Math.PI) * 1.45;
-      return { proj, signedPerp, startDist, endDist, dxAxis, dzAxis, bridgeY };
+      const meta = this._getIslandBridgeMeta(island);
+      const proj = x * meta.dxAxis + z * meta.dzAxis;
+      const signedPerp = -x * meta.dzAxis + z * meta.dxAxis;
+      const t = Math.max(0, Math.min(1, (proj - meta.startDist) / Math.max(meta.endDist - meta.startDist, 0.01)));
+      const bridgeY = meta.startY + (meta.endY - meta.startY) * t + Math.sin(t * Math.PI) * 1.45;
+      return {
+        proj,
+        signedPerp,
+        startDist: meta.startDist,
+        endDist: meta.endDist,
+        dxAxis: meta.dxAxis,
+        dzAxis: meta.dzAxis,
+        bridgeY
+      };
     }
 
     _getSurfaceInfoAt(x, z, allowBridge = true) {
@@ -6880,7 +8165,7 @@
 
       // 1. 中央自強廣場（與地形雕塑完全同一組數學公式）
       const hubH = this._evalHubHeight(x, z);
-      if (hubH >= 0.28) {
+      if (hubH >= 0.25) {
         maxGround = hubH;
         onLand = true;
         surfaceType = "hub";
@@ -6903,17 +8188,11 @@
 
         const dx = x - island.position.x;
         const dz = z - island.position.z;
-        const r = island.radius;
         const seed = idx * 1.7 + 0.4;
         let islH = -Infinity;
 
-        // 南側木造碼頭
-        if (Math.abs(dx) <= 1.35 && dz >= r * 0.72 && dz <= r * 1.2) {
-          islH = Math.max(islH, 0.56);
-        }
-
         const evalH = this._evalIslandHeight(island, dx, dz, seed);
-        if (evalH >= 0.28) {
+        if (evalH >= 0.25) {
           islH = Math.max(islH, evalH);
         }
 
@@ -7099,10 +8378,11 @@
         if (this.callbacks.onStopActivity) this.callbacks.onStopActivity();
       }
       const ps = this.pantherState;
+      const hubY = this._getHubPlazaY();
       ps.x = 0;
-      ps.z = 5.8;
-      ps.groundY = 1.76;
-      ps.y = 1.76;
+      ps.z = 7.6;
+      ps.groundY = hubY;
+      ps.y = hubY;
       ps.vy = 0;
       ps.onGround = true;
       ps.onWater = false;
@@ -7660,8 +8940,8 @@
     nudgeBoat(forwardStep, turnStep) {
       this.boatMode = "free";
       this.boatAngle += turnStep;
-      const nx = Math.max(-62, Math.min(62, this.boatCurrent.x + Math.sin(this.boatAngle) * forwardStep));
-      const nz = Math.max(-62, Math.min(62, this.boatCurrent.z + Math.cos(this.boatAngle) * forwardStep));
+      const nx = Math.max(-95, Math.min(95, this.boatCurrent.x + Math.sin(this.boatAngle) * forwardStep));
+      const nz = Math.max(-95, Math.min(95, this.boatCurrent.z + Math.cos(this.boatAngle) * forwardStep));
       this.boatCurrent.x = nx;
       this.boatCurrent.z = nz;
       this.boatTarget.x = nx;
@@ -7711,6 +8991,18 @@
       this.walkerCat = walker;
     }
 
+    _getWaypointStandPos(island, pathInfo, wp) {
+      let wx = island.position.x + (typeof wp.x === "number" ? wp.x : Math.cos(wp.angle) * pathInfo.radius);
+      let wz = island.position.z + (typeof wp.z === "number" ? wp.z : Math.sin(wp.angle) * pathInfo.radius);
+      if (wp.kind === "node" && typeof wp.face === "number") {
+        wx += Math.sin(wp.face) * 1.65;
+        wz += Math.cos(wp.face) * 1.65;
+      } else if (wp.kind === "encounter" && typeof wp.x === "number") {
+        wx += -Math.sign(wp.x || 1) * 0.95;
+      }
+      return { x: wx, z: wz };
+    }
+
     placeWalkerOnIsland(islandId) {
       if (!this.isWebGL || !this.walkerCat) return;
       const island = this.islandsData.find((i) => i.id === islandId);
@@ -7718,10 +9010,12 @@
       if (!island || !pathInfo || pathInfo.waypoints.length === 0) return;
 
       const wp0 = pathInfo.waypoints[0];
-      const wx = island.position.x + (typeof wp0.x === "number" ? wp0.x : Math.cos(wp0.angle) * pathInfo.radius);
-      const wz = island.position.z + (typeof wp0.z === "number" ? wp0.z : Math.sin(wp0.angle) * pathInfo.radius);
+      const stand0 = this._getWaypointStandPos(island, pathInfo, wp0);
+      const wx = stand0.x;
+      const wz = stand0.z;
+      const prof = this._getIslandProfile(island);
       const surf = this._getSurfaceInfoAt(wx, wz, false);
-      const wy = (surf.onWater ? 1.84 : surf.groundY) + 0.04;
+      const wy = (surf.onWater ? prof.platY : surf.groundY) + 0.04;
       this.walkerState = {
         islandId,
         waypointIdx: 0,
@@ -7755,8 +9049,9 @@
 
       const nextIdx = (this.walkerState.waypointIdx + 1) % pathInfo.waypoints.length;
       const wp = pathInfo.waypoints[nextIdx];
-      const wx = island.position.x + (typeof wp.x === "number" ? wp.x : Math.cos(wp.angle) * pathInfo.radius);
-      const wz = island.position.z + (typeof wp.z === "number" ? wp.z : Math.sin(wp.angle) * pathInfo.radius);
+      const stand = this._getWaypointStandPos(island, pathInfo, wp);
+      const wx = stand.x;
+      const wz = stand.z;
       this.walkerState.waypointIdx = nextIdx;
       this.walkerState.targetX = wx;
       this.walkerState.targetZ = wz;
@@ -7849,6 +9144,7 @@
           rimInt: 0.16,
           shallow: "#5fd0e8",
           deep: "#2d8fca",
+          lagoon: "#45ece0",
           foam: "#ffffff",
           starOpacity: 0.08,
           rainbow: true,
@@ -7876,6 +9172,7 @@
           rimInt: 0.16,
           shallow: "#e59682",
           deep: "#4d568a",
+          lagoon: "#df9d7e",
           foam: "#ffe8d2",
           starOpacity: 0.45,
           rainbow: false,
@@ -7903,6 +9200,7 @@
           rimInt: 0.1,
           shallow: "#1d4b75",
           deep: "#091c38",
+          lagoon: "#164e63",
           foam: "#7ecbff",
           starOpacity: 0.96,
           rainbow: false,
@@ -7961,6 +9259,7 @@
       if (this.oceanUniforms) {
         this.oceanUniforms.uShallowColor.value.set(p.shallow);
         this.oceanUniforms.uDeepColor.value.set(p.deep);
+        if (this.oceanUniforms.uLagoonColor) this.oceanUniforms.uLagoonColor.value.set(p.lagoon);
         this.oceanUniforms.uFoamColor.value.set(p.foam);
         this.oceanUniforms.uFogColor.value.set(p.fog);
       }
@@ -7976,6 +9275,11 @@
       }
       if (this.rainbowMesh) {
         this.rainbowMesh.visible = p.rainbow;
+      }
+      if (this.cloudMat) {
+        this.cloudMat.color.set(p.cloudCol || "#ffffff");
+        this.cloudMat.emissive.set(p.cloudShade || "#edf6ff");
+        this.cloudMat.emissiveIntensity = mode === "night" ? 0.25 : mode === "sunset" ? 0.55 : 0.72;
       }
       this.nightGlowMaterials.forEach((m) => m.color.set(p.winColor));
       if (this.hubNightLight) {
@@ -8130,8 +9434,8 @@
       const aspect = Math.max((width || 1200) / Math.max(height || 800, 1), 0.42);
       const distScale = Math.min(Math.max(1, 1.32 / aspect), 2.85);
       return {
-        camPos: new THREE.Vector3(0, 98 * distScale, 134 * distScale),
-        targetPos: new THREE.Vector3(0, 0, -2.5)
+        camPos: new THREE.Vector3(0, 114 * distScale, 166 * distScale),
+        targetPos: new THREE.Vector3(0, 4.0, -2.5)
       };
     }
 
@@ -8151,7 +9455,7 @@
       this._orbitHoldUntil = 0;
       this.selectedIslandId = null;
       this.boatMode = "auto";
-      this.boatTarget = { x: 16.5, z: 17.5 };
+      this.boatTarget = { x: 22.0, z: 22.0 };
       if (this.walkerCat) this.walkerCat.group.visible = false;
       this.refreshAllStates();
       this._checkPantherProximity();
@@ -8181,10 +9485,11 @@
       };
       this.placeWalkerOnIsland(islandId);
 
-      // 降落南側迎賓大道起點，正面透過主題牌坊與大道仰望主聖殿
+      // 降落南側迎賓大道起點，正面透過主題牌坊／階梯與大道仰望主聖殿
+      const prof = this._getIslandProfile(island);
       const ps = this.pantherState;
       ps.x = island.position.x;
-      ps.z = island.position.z + 11.8;
+      ps.z = island.position.z + prof.spawnZ;
       const surf = this._getSurfaceInfoAt(ps.x, ps.z, false);
       ps.groundY = surf.groundY;
       ps.y = surf.groundY;
@@ -8342,15 +9647,18 @@
       const THREE = window.THREE;
       const tempVec = new THREE.Vector3();
       const hideOffscreen = this.cameraMode === "follow" || width <= 780;
+      const onOpenSeaOrBridge = Boolean(this.pantherState && (this.pantherState.onBridgeId || this.pantherState.onWater));
+      const hideAllNeighborLabels = this.cameraMode === "follow" && !onOpenSeaOrBridge;
       this.islandsData.forEach((island) => {
         const el = this.labelEls.get(island.id);
         if (!el) return;
-        if (this.cameraMode === "follow" && (this.selectedIslandId === island.id || this.nearIslandId === island.id)) {
+        if (hideAllNeighborLabels || (this.cameraMode === "follow" && (this.selectedIslandId === island.id || this.nearIslandId === island.id))) {
           el.style.opacity = "0";
           el.style.pointerEvents = "none";
           return;
         }
-        tempVec.set(island.position.x, 13.8, island.position.z);
+        const prof = this._getIslandProfile(island);
+        tempVec.set(island.position.x, prof.sanctY + 11.5, island.position.z);
         tempVec.project(this.camera);
 
         if (
@@ -8488,7 +9796,7 @@
           // 中央廣場布偶史珂好奇張望＋微搖呼吸動態
           this.hubCatWrap.rotation.y = 0.42 + Math.sin(this.clockTime * 1.15) * 0.22;
           this.hubCatWrap.rotation.z = Math.sin(this.clockTime * 2.1) * 0.04;
-          this.hubCatWrap.position.y = 1.76 + Math.max(0, Math.sin(this.clockTime * 2.4)) * 0.04;
+          this.hubCatWrap.position.y = this._getHubPlazaY() + Math.max(0, Math.sin(this.clockTime * 2.4)) * 0.04;
         }
 
         if (this.captainCat && this.captainCat.group && this.captainCat.isMofuPirate) {
@@ -8592,7 +9900,7 @@
                   const pawMark = new THREE.Mesh(new THREE.CircleGeometry(0.16, 10), pMat);
                   pawMark.rotation.x = -Math.PI / 2;
                   const pSurf = this._getSurfaceInfoAt(this.walkerState.curX, this.walkerState.curZ, false);
-                  pawMark.position.set(this.walkerState.curX, (pSurf.onWater ? 1.84 : pSurf.groundY) + 0.06, this.walkerState.curZ);
+                  pawMark.position.set(this.walkerState.curX, (pSurf.onWater ? this._getIslandProfile(isl).platY : pSurf.groundY) + 0.06, this.walkerState.curZ);
                   this.scene.add(pawMark);
                   this.pawPrints.push({ mesh: pawMark, mat: pMat, life: 1.3 });
                 }
@@ -8602,7 +9910,7 @@
             const hopOffset = this.walkerState.isMoving ? Math.abs(Math.sin(this.clockTime * 14)) * 0.26 : 0;
             this.walkerCat.group.position.set(
               this.walkerState.curX,
-              (wSurf.onWater ? 1.84 : wSurf.groundY) + 0.04 + hopOffset,
+              (wSurf.onWater ? this._getIslandProfile(isl).platY : wSurf.groundY) + 0.04 + hopOffset,
               this.walkerState.curZ
             );
             this.walkerCat.group.lookAt(
@@ -8631,8 +9939,8 @@
           if (this.boatMode === "free" && (this.boatInput.forward !== 0 || this.boatInput.turn !== 0)) {
             this.boatAngle += this.boatInput.turn * dt * 2.2;
             const speed = this.boatInput.forward * 11 * dt;
-            this.boatCurrent.x = Math.max(-44, Math.min(44, this.boatCurrent.x + Math.sin(this.boatAngle) * speed));
-            this.boatCurrent.z = Math.max(-42, Math.min(42, this.boatCurrent.z + Math.cos(this.boatAngle) * speed));
+            this.boatCurrent.x = Math.max(-85, Math.min(85, this.boatCurrent.x + Math.sin(this.boatAngle) * speed));
+            this.boatCurrent.z = Math.max(-85, Math.min(85, this.boatCurrent.z + Math.cos(this.boatAngle) * speed));
             this.boat.rotation.y = this.boatAngle;
 
             if (this.controls && this.selectedIslandId === null) {
@@ -8782,7 +10090,15 @@
           this.controls.update();
           if (this.cameraMode === "follow") {
             const camSurf = this._getSurfaceInfoAt(this.camera.position.x, this.camera.position.z, false);
-            const minCamY = camSurf.onWater ? 0.9 : camSurf.groundY + 0.68;
+            const midSurf = this._getSurfaceInfoAt(
+              (this.controls.target.x + this.camera.position.x) * 0.5,
+              (this.controls.target.z + this.camera.position.z) * 0.5,
+              false
+            );
+            const minCamY = Math.max(
+              camSurf.onWater ? 0.9 : camSurf.groundY + 1.15,
+              midSurf.onWater ? 0.9 : midSurf.groundY + 0.75
+            );
             if (this.camera.position.y < minCamY) {
               this.camera.position.y = minCamY;
             }
@@ -8866,11 +10182,11 @@
       if (moveStrength > 0.05) {
         const prevX = ps.x;
         const prevZ = ps.z;
-        const rawX = Math.max(-95, Math.min(95, prevX + worldMoveX * speed * moveStrength * dt));
-        const rawZ = Math.max(-95, Math.min(95, prevZ + worldMoveZ * speed * moveStrength * dt));
+        const rawX = Math.max(-135, Math.min(135, prevX + worldMoveX * speed * moveStrength * dt));
+        const rawZ = Math.max(-135, Math.min(135, prevZ + worldMoveZ * speed * moveStrength * dt));
         const colRes = this._resolveCollisions(rawX, rawZ, ps.y, 0.28);
-        let nextX = Math.max(-95, Math.min(95, colRes.x));
-        let nextZ = Math.max(-95, Math.min(95, colRes.z));
+        let nextX = Math.max(-135, Math.min(135, colRes.x));
+        let nextZ = Math.max(-135, Math.min(135, colRes.z));
 
         // 橋樑實體護欄＆海橋隔離物理：在橋上受左右護欄限制不落海；在海上不能從側面/跳躍上橋
         const fromBridge = (bc, proj, perp) => ({
@@ -8898,15 +10214,16 @@
             const bPrev = this._getBridgeCoord(prevX, prevZ, isl);
             const bNext = this._getBridgeCoord(nextX, nextZ, isl);
             if (bNext.proj >= bNext.startDist && bNext.proj <= bNext.endDist && Math.abs(bNext.signedPerp) <= 1.55) {
+              const underBridgeClearance = ps.y + 1.85 < bNext.bridgeY - 0.35;
               const fromLand = !surfInfoBefore.onWater && !ps.jumpedFromWater;
               const viaEndGate = (bPrev.proj <= bNext.startDist + 1.2 || bPrev.proj >= bNext.endDist - 1.2) && Math.abs(bNext.signedPerp) <= 1.15;
-              if (fromLand && viaEndGate) {
+              if (fromLand && viaEndGate && !underBridgeClearance) {
                 ps.onBridgeId = isl.id;
                 const clampedPerp = Math.max(-0.92, Math.min(0.92, bNext.signedPerp));
                 const pt = fromBridge(bNext, bNext.proj, clampedPerp);
                 nextX = pt.x;
                 nextZ = pt.z;
-              } else {
+              } else if (!underBridgeClearance) {
                 const side = bPrev.signedPerp === 0 ? (bNext.signedPerp >= 0 ? 1 : -1) : Math.sign(bPrev.signedPerp);
                 const pt = fromBridge(bNext, bNext.proj, side * 1.64);
                 nextX = pt.x;
@@ -8966,11 +10283,25 @@
 
       const surf = this._getSurfaceInfoAt(ps.x, ps.z, Boolean(ps.onBridgeId));
       ps.onWater = surf.onWater;
-      ps.groundY += (surf.groundY - ps.groundY) * Math.min(1, dt * 16);
+      const gRate = surf.groundY > ps.groundY ? 28 : 16;
+      ps.groundY += (surf.groundY - ps.groundY) * Math.min(1, dt * gRate);
 
       if (!ps.onGround) {
+        const prevY = ps.y;
         ps.vy -= 28 * dt;
         ps.y += ps.vy * dt;
+        if (!ps.onBridgeId && ps.vy > 0) {
+          for (let i = 0; i < this.islandsData.length; i++) {
+            const b = this._getBridgeCoord(ps.x, ps.z, this.islandsData[i]);
+            if (b.proj >= b.startDist && b.proj <= b.endDist && Math.abs(b.signedPerp) <= 1.45) {
+              if (prevY + 1.85 <= b.bridgeY && ps.y + 1.85 > b.bridgeY - 0.25) {
+                ps.y = Math.min(ps.y, b.bridgeY - 2.1);
+                ps.vy = Math.min(0, ps.vy);
+                break;
+              }
+            }
+          }
+        }
         if (ps.y <= surf.groundY) {
           ps.y = surf.groundY;
           ps.vy = 0;
@@ -9259,10 +10590,11 @@
       this.panther.shadowMesh.scale.setScalar(shadowScale);
       this.panther.shadowMat.opacity = Math.max(0.14, 0.42 - heightAboveGround * 0.06);
 
+      if (moved && this.isTweening) this.isTweening = false;
       if ((moved || this.cameraMode === "follow") && this.controls && !this.isTweening) {
         const oldT = this.controls.target.clone();
         const desiredT = new THREE.Vector3(ps.x, ps.y + 2.02, ps.z);
-        this.controls.target.lerp(desiredT, moved ? 0.22 : 0.12);
+        this.controls.target.lerp(desiredT, moved ? 0.30 : 0.14);
         const deltaT = this.controls.target.clone().sub(oldT);
         this.camera.position.add(deltaT);
 
@@ -9292,7 +10624,7 @@
           }
           r += (targetDist - r) * Math.min(1, dt * 2.2);
           const h = cam.y - tgt.y;
-          const hNew = h + (this.chaseHeight - h) * Math.min(1, dt * 2.2);
+          const hNew = h + (this.chaseHeight - h) * Math.min(1, dt * 3.4);
           cam.set(tgt.x + Math.sin(ang) * r, tgt.y + hNew, tgt.z + Math.cos(ang) * r);
         } else if (moved && !this.chaseCam) {
           const distToCam = this.camera.position.distanceTo(desiredT);
@@ -9310,7 +10642,7 @@
         }
 
         const camSurf = this._getSurfaceInfoAt(this.camera.position.x, this.camera.position.z, false);
-        const minCamY = camSurf.onWater ? 0.9 : camSurf.groundY + 0.68;
+        const minCamY = camSurf.onWater ? 0.9 : camSurf.groundY + 1.15;
         if (this.camera.position.y < minCamY) {
           this.camera.position.y = minCamY;
         }
